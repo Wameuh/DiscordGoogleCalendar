@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import importlib.metadata
+from datetime import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from discordcalendarbot import __version__
+from discordcalendarbot.app import RuntimeApplication, build_application
 from discordcalendarbot.cli import main
-from discordcalendarbot.config import SettingsValidationError, validate_required_environment
+from discordcalendarbot.config import (
+    BotSettings,
+    SettingsValidationError,
+    validate_required_environment,
+)
 
 
 def test_package_version_matches_project_metadata() -> None:
@@ -19,6 +26,28 @@ def test_package_version_matches_project_metadata() -> None:
 def test_default_cli_command_exits_successfully() -> None:
     """The default CLI should be wired and return success."""
     assert main([]) == 0
+
+
+def test_build_application_returns_runtime_when_settings_are_supplied(tmp_path: Path) -> None:
+    """Composition root should build the runtime app from validated settings."""
+    settings = BotSettings(
+        discord_bot_token=f"token-{tmp_path.name}",
+        discord_guild_id=123,
+        discord_channel_id=456,
+        google_credentials_path=tmp_path / "credentials.json",
+        google_token_path=tmp_path / "token.json",
+        google_calendar_ids=("primary",),
+        event_tag="#discord-daily",
+        bot_timezone_name="Europe/Kiev",
+        bot_timezone=ZoneInfo("Europe/Kiev"),
+        daily_digest_time=time(hour=7),
+        sqlite_path=tmp_path / "discordcalendarbot.sqlite3",
+    )
+
+    application = build_application(settings)
+
+    assert isinstance(application, RuntimeApplication)
+    assert application.settings is settings
 
 
 def test_gitignore_contains_secret_and_state_patterns() -> None:

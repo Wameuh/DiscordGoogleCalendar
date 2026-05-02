@@ -54,7 +54,7 @@ uv run pytest
 
 ## Configuration
 
-The current implementation includes the first typed settings primitives. Runtime startup wiring is still being built, but these environment variables are already treated as required by the configuration layer:
+The current implementation includes typed settings, Google Calendar read adapters, Discord formatting and publishing, SQLite idempotency, and the daily digest service/scheduler wiring. These environment variables are treated as required by the configuration layer:
 
 ```text
 DISCORD_BOT_TOKEN=
