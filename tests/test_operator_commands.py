@@ -15,8 +15,9 @@ from discordcalendarbot.calendar.auth import (
     OAuthTokenMetadata,
     run_oauth_login,
 )
-from discordcalendarbot.cli import build_parser
+from discordcalendarbot.cli import build_parser, handle_check_discord
 from discordcalendarbot.config import BotSettings, EventFilterMode
+from discordcalendarbot.discord.bot import DiscordRuntimeError
 from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher, DiscordCliPublishError
 from discordcalendarbot.discord.formatter import DiscordMessagePart
 from discordcalendarbot.operator_commands import (
@@ -27,6 +28,7 @@ from discordcalendarbot.operator_commands import (
     check_google_calendar,
     daily_key_for_date,
     oauth_metadata_path,
+    run_check_discord_command,
     run_check_google_calendar_command,
     run_dry_run_command,
     run_google_auth_login_command,
@@ -233,6 +235,8 @@ def test_parser_exposes_operator_subcommands() -> None:
     check_google = parser.parse_args(["check-google-calendar", "--date", "2026-05-02"])
     assert check_google.command == "check-google-calendar"
     assert check_google.date == "2026-05-02"
+    check_discord = parser.parse_args(["check-discord"])
+    assert check_discord.command == "check-discord"
     assert send.command == "send-digest"
     assert send.force
     assert send.confirm_force == "2026-05-02"
@@ -571,6 +575,121 @@ async def test_check_google_calendar_uses_window_mapping_and_filter(
     assert result.digest_event_count == 1
     assert fake_client.calls == [("primary", "Europe/Kiev")]
     assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_check_discord_reports_success_without_posting(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Discord check command should report validated target permissions."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+    calls = 0
+
+    async def fake_check_discord_target(_settings: BotSettings) -> object:
+        """Capture Discord target validation without sending messages."""
+        nonlocal calls
+        calls += 1
+        return object()
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.check_discord_target",
+        fake_check_discord_target,
+    )
+
+    result = await run_check_discord_command(settings, output=output)
+
+    assert result.exit_code == 0
+    assert calls == 1
+    assert "Discord check: ok" in output.text
+    assert "Send Messages permission: yes" in output.text
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_check_discord_reports_safe_failure(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Discord check command should report validation failures without secrets."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fail_check_discord_target(_settings: BotSettings) -> object:
+        """Raise a Discord target validation error."""
+        raise DiscordRuntimeError("Bot cannot send messages to the configured Discord channel")
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.check_discord_target",
+        fail_check_discord_target,
+    )
+
+    result = await run_check_discord_command(settings, output=output)
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert "cannot send messages" in output.text
+    assert settings.discord_bot_token not in output.text
+
+
+@pytest.mark.asyncio
+async def test_check_discord_failure_redacts_configured_ids(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Discord check command should not echo configured guild or channel IDs."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fail_check_discord_target(_settings: BotSettings) -> object:
+        """Raise an error that includes raw configured identifiers."""
+        raise DiscordRuntimeError(
+            f"Configured Discord channel not found: {settings.discord_channel_id}"
+        )
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.check_discord_target",
+        fail_check_discord_target,
+    )
+
+    result = await run_check_discord_command(settings, output=output)
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert str(settings.discord_channel_id) not in output.text
+    assert str(settings.discord_guild_id) not in output.text
+    assert settings.discord_bot_token not in output.text
+
+
+def test_check_discord_handler_uses_discord_only_settings(monkeypatch: MonkeyPatch) -> None:
+    """CLI handler should avoid full settings loading for Discord-only checks."""
+    discord_settings = object()
+    calls: list[object] = []
+
+    async def fake_run_check_discord_command(settings: object, *, output: object) -> object:
+        """Record the Discord check command call."""
+        _ = output
+        calls.append(settings)
+        return type("Result", (), {"exit_code": 0})()
+
+    def load_discord_settings() -> object:
+        """Return Discord-only settings for the handler."""
+        return discord_settings
+
+    def fail_full_settings_loader() -> object:
+        """Fail if the handler accidentally loads full Google-backed settings."""
+        raise AssertionError("load_operator_settings should not be called")
+
+    monkeypatch.setattr("discordcalendarbot.cli.load_operator_settings", fail_full_settings_loader)
+    monkeypatch.setattr(
+        "discordcalendarbot.cli.load_discord_operator_settings", load_discord_settings
+    )
+    monkeypatch.setattr(
+        "discordcalendarbot.cli.run_check_discord_command",
+        fake_run_check_discord_command,
+    )
+
+    assert handle_check_discord(object()) == 0
+    assert calls == [discord_settings]
 
 
 @pytest.mark.asyncio

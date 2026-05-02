@@ -21,7 +21,13 @@ from discordcalendarbot.calendar.auth import (
 )
 from discordcalendarbot.calendar.client import GoogleCalendarClient, build_calendar_service
 from discordcalendarbot.calendar.mapper import normalize_google_events
-from discordcalendarbot.config import BotSettings, load_settings
+from discordcalendarbot.config import (
+    BotSettings,
+    DiscordCheckSettings,
+    load_discord_check_settings,
+    load_settings,
+)
+from discordcalendarbot.discord.bot import DiscordRuntimeError, check_discord_target
 from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher
 from discordcalendarbot.discord.formatter import DigestFormatter, DiscordMessagePart
 from discordcalendarbot.discord.publisher import DiscordPublishResult
@@ -186,6 +192,12 @@ def load_operator_settings(*, project_root: Path | None = None) -> BotSettings:
     return load_settings(os.environ, project_root=project_root)
 
 
+def load_discord_operator_settings() -> DiscordCheckSettings:
+    """Load .env and Discord-only settings for connectivity checks."""
+    load_dotenv()
+    return load_discord_check_settings(os.environ)
+
+
 def parse_target_date(value: str) -> date:
     """Parse an operator-supplied ISO date."""
     return date.fromisoformat(value)
@@ -291,6 +303,32 @@ async def run_check_google_calendar_command(
         + "\n"
     )
     return OperatorCommandResult(0, "check_google_calendar_complete")
+
+
+async def run_check_discord_command(
+    settings: DiscordCheckSettings,
+    *,
+    output: Output,
+) -> OperatorCommandResult:
+    """Check Discord connectivity and target permissions without posting."""
+    try:
+        await check_discord_target(settings)
+    except Exception as error:
+        output.write(f"Discord check failed: {format_discord_check_failure(error)}\n")
+        return OperatorCommandResult(DRY_RUN_FAILURE_EXIT_CODE, type(error).__name__)
+    output.write(
+        "\n".join(
+            (
+                "Discord check: ok",
+                "Guild resolved: yes",
+                "Channel resolved: yes",
+                "View Channel permission: yes",
+                "Send Messages permission: yes",
+            )
+        )
+        + "\n"
+    )
+    return OperatorCommandResult(0, "check_discord_complete")
 
 
 async def run_send_digest_command(
@@ -516,6 +554,26 @@ def format_dry_run_exception(error: Exception) -> str:
     return format_dry_run_problem(
         kind=dry_run_kind_for_exception(error),
         status=status_code_for_error(error),
+    )
+
+
+def format_discord_check_failure(error: Exception) -> str:
+    """Format a safe operator-facing Discord connectivity failure."""
+    message = str(error).lower()
+    failure_messages = (
+        ("send messages", "Bot cannot send messages to the configured Discord channel."),
+        ("view", "Bot cannot view the configured Discord channel."),
+        ("guild", "Configured Discord guild could not be resolved or validated."),
+        ("channel", "Configured Discord channel could not be resolved or validated."),
+        ("role", "Configured Discord role mention target could not be validated."),
+    )
+    if isinstance(error, DiscordRuntimeError):
+        for marker, safe_message in failure_messages:
+            if marker in message:
+                return safe_message
+        return "Discord target validation failed; verify the configured guild and channel."
+    return (
+        "Discord connectivity check failed; verify the bot token, guild, channel, and permissions."
     )
 
 

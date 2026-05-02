@@ -90,6 +90,18 @@ class BotSettings:
     log_level: str = "INFO"
 
 
+@dataclass(frozen=True)
+class DiscordCheckSettings:
+    """Validated Discord-only settings for connectivity checks."""
+
+    discord_bot_token: str
+    discord_guild_id: int
+    discord_channel_id: int
+    discord_publish_timeout_seconds: int = 20
+    enable_role_mention: bool = False
+    discord_role_mention_id: int | None = None
+
+
 def load_settings(
     environment: Mapping[str, str],
     *,
@@ -185,6 +197,40 @@ def load_settings(
             maximum=86_400,
         ),
         log_level=environment.get("LOG_LEVEL", "INFO").strip().upper(),
+    )
+
+
+def load_discord_check_settings(environment: Mapping[str, str]) -> DiscordCheckSettings:
+    """Load and validate only the Discord settings needed for target checks."""
+    missing = tuple(
+        variable
+        for variable in ("DISCORD_BOT_TOKEN", "DISCORD_GUILD_ID", "DISCORD_CHANNEL_ID")
+        if not environment.get(variable, "").strip()
+    )
+    if missing:
+        names = ", ".join(missing)
+        raise SettingsValidationError(f"Missing required Discord environment variables: {names}")
+    role_enabled = parse_bool(environment.get("ENABLE_ROLE_MENTION", "false"))
+    role_id = parse_optional_int(environment.get("DISCORD_ROLE_MENTION_ID"))
+    if role_enabled and role_id is None:
+        raise SettingsValidationError(
+            "DISCORD_ROLE_MENTION_ID is required when ENABLE_ROLE_MENTION=true"
+        )
+    return DiscordCheckSettings(
+        discord_bot_token=require_non_blank(environment, "DISCORD_BOT_TOKEN"),
+        discord_guild_id=parse_positive_int(environment["DISCORD_GUILD_ID"], "DISCORD_GUILD_ID"),
+        discord_channel_id=parse_positive_int(
+            environment["DISCORD_CHANNEL_ID"],
+            "DISCORD_CHANNEL_ID",
+        ),
+        discord_publish_timeout_seconds=parse_int_in_range(
+            environment.get("DISCORD_PUBLISH_TIMEOUT_SECONDS", "20"),
+            "DISCORD_PUBLISH_TIMEOUT_SECONDS",
+            minimum=1,
+            maximum=120,
+        ),
+        enable_role_mention=role_enabled,
+        discord_role_mention_id=role_id,
     )
 
 

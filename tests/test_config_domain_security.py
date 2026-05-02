@@ -12,6 +12,7 @@ from discordcalendarbot.config import (
     EventFilterMode,
     SettingsValidationError,
     is_path_relative_to,
+    load_discord_check_settings,
     load_settings,
 )
 from discordcalendarbot.domain.digest import build_local_day_window, event_overlaps_window
@@ -130,6 +131,20 @@ def test_load_settings_rejects_unignored_secret_paths_inside_project(tmp_path: P
             project_root=tmp_path,
             ignore_checker=lambda _path: False,
         )
+
+
+def test_load_discord_check_settings_does_not_require_google_values() -> None:
+    """Discord-only checks should not require Google or SQLite settings."""
+    settings = load_discord_check_settings(
+        {
+            "DISCORD_BOT_TOKEN": "token",
+            "DISCORD_GUILD_ID": "123",
+            "DISCORD_CHANNEL_ID": "456",
+        }
+    )
+
+    assert settings.discord_guild_id == EXPECTED_GUILD_ID
+    assert settings.discord_channel_id == EXPECTED_CHANNEL_ID
 
 
 def test_path_containment_can_compare_windows_paths_case_insensitively(tmp_path: Path) -> None:

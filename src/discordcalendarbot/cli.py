@@ -10,8 +10,10 @@ from typing import cast
 from discordcalendarbot import __version__
 from discordcalendarbot.app import RuntimeApplication, build_application
 from discordcalendarbot.operator_commands import (
+    load_discord_operator_settings,
     load_operator_settings,
     parse_target_date,
+    run_check_discord_command,
     run_check_google_calendar_command,
     run_dry_run_command,
     run_google_auth_login_command,
@@ -40,6 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
     check_google = subparsers.add_parser("check-google-calendar")
     check_google.add_argument("--date", required=True)
     check_google.set_defaults(handler=handle_check_google_calendar)
+
+    check_discord = subparsers.add_parser("check-discord")
+    check_discord.set_defaults(handler=handle_check_discord)
 
     send_digest = subparsers.add_parser("send-digest")
     send_digest.add_argument("--date", required=True)
@@ -105,6 +110,18 @@ def handle_check_google_calendar(args: argparse.Namespace) -> int:
         run_check_google_calendar_command(
             settings,
             target_date=parse_target_date(args.date),
+            output=sys.stdout,
+        )
+    )
+    return result.exit_code
+
+
+def handle_check_discord(_args: argparse.Namespace) -> int:
+    """Handle Discord connectivity checks."""
+    settings = load_discord_operator_settings()
+    result = asyncio.run(
+        run_check_discord_command(
+            settings,
             output=sys.stdout,
         )
     )

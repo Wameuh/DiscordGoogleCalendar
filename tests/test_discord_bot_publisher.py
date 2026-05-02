@@ -10,12 +10,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from discordcalendarbot.config import BotSettings, EventFilterMode
+from discordcalendarbot.config import BotSettings, DiscordCheckSettings, EventFilterMode
 from discordcalendarbot.discord.bot import (
     CalendarDigestBot,
     DiscordRuntime,
     DiscordRuntimeError,
+    DiscordTargetCheckClient,
     build_minimal_intents,
+    check_discord_target,
     validate_discord_target,
 )
 from discordcalendarbot.discord.formatter import DiscordMessagePart
@@ -240,6 +242,51 @@ def make_guild_with_channel() -> tuple[FakeGuild, FakeChannel]:
     channel = FakeChannel(id=CHANNEL_ID, guild=guild)
     guild.channels[channel.id] = channel
     return guild, channel
+
+
+@pytest.mark.asyncio
+async def test_check_discord_target_reraises_validation_failure_after_closing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connectivity checks should not hang when readiness validation fails."""
+    discord_token = "-".join(("token", "for", "check"))
+    settings = DiscordCheckSettings(
+        discord_bot_token=discord_token,
+        discord_guild_id=GUILD_ID,
+        discord_channel_id=CHANNEL_ID,
+    )
+    closed = False
+
+    async def fail_validate_discord_target(*_args: object) -> object:
+        """Simulate a validation failure inside the Discord ready callback."""
+        raise DiscordRuntimeError(f"Configured Discord channel not found: {CHANNEL_ID}")
+
+    async def fake_start(self: DiscordTargetCheckClient, token: str) -> None:
+        """Run the ready callback without opening a network connection."""
+        assert token == settings.discord_bot_token
+        await self.on_ready()
+
+    async def fake_close(_self: DiscordTargetCheckClient) -> None:
+        """Record that the short-lived client was closed."""
+        nonlocal closed
+        closed = True
+
+    def fake_is_closed(_self: DiscordTargetCheckClient) -> bool:
+        """Return the fake client closed state."""
+        return closed
+
+    monkeypatch.setattr(
+        "discordcalendarbot.discord.bot.validate_discord_target",
+        fail_validate_discord_target,
+    )
+    monkeypatch.setattr(DiscordTargetCheckClient, "start", fake_start)
+    monkeypatch.setattr(DiscordTargetCheckClient, "close", fake_close)
+    monkeypatch.setattr(DiscordTargetCheckClient, "is_closed", fake_is_closed)
+
+    with pytest.raises(DiscordRuntimeError, match="channel not found"):
+        await check_discord_target(settings)
+
+    assert closed
 
 
 def test_minimal_intents_disable_privileged_message_content() -> None:

@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 import discord
 
-from discordcalendarbot.config import BotSettings
+from discordcalendarbot.config import BotSettings, DiscordCheckSettings
 from discordcalendarbot.discord.publisher import DiscordPublisher
 
 logger = logging.getLogger(__name__)
@@ -154,9 +154,44 @@ async def start_discord_bot(
         await bot.close()
 
 
+class DiscordTargetCheckClient(discord.Client):
+    """Short-lived Discord client that validates target access and exits."""
+
+    def __init__(self, settings: DiscordCheckSettings) -> None:
+        """Create the Discord connectivity check client."""
+        super().__init__(intents=build_minimal_intents())
+        self._settings = settings
+        self.target: DiscordTarget | None = None
+        self.validation_error: Exception | None = None
+
+    async def on_ready(self) -> None:
+        """Validate the configured target and close immediately."""
+        try:
+            self.target = await validate_discord_target(self, self._settings)
+        except Exception as error:
+            self.validation_error = error
+        finally:
+            await self.close()
+
+
+async def check_discord_target(settings: DiscordCheckSettings) -> DiscordTarget:
+    """Connect to Discord, validate the configured target, and disconnect."""
+    client = DiscordTargetCheckClient(settings)
+    try:
+        await client.start(settings.discord_bot_token)
+    finally:
+        if not client.is_closed():
+            await client.close()
+    if client.validation_error is not None:
+        raise client.validation_error
+    if client.target is None:
+        raise DiscordRuntimeError("Discord client exited before validating the target")
+    return client.target
+
+
 async def validate_discord_target(
     client: SupportsDiscordClient,
-    settings: BotSettings,
+    settings: BotSettings | DiscordCheckSettings,
 ) -> DiscordTarget:
     """Validate the configured guild, channel, permissions, and optional role."""
     guild = await resolve_guild(client, settings.discord_guild_id)
@@ -224,7 +259,10 @@ def validate_channel_permissions(guild: SupportsDiscordGuild, channel: Any) -> N
         raise DiscordRuntimeError("Bot cannot send messages to the configured Discord channel")
 
 
-def validate_configured_role(guild: SupportsDiscordGuild, settings: BotSettings) -> Any:
+def validate_configured_role(
+    guild: SupportsDiscordGuild,
+    settings: BotSettings | DiscordCheckSettings,
+) -> Any:
     """Validate the configured automatic mention role."""
     role_id = settings.discord_role_mention_id
     if role_id is None:
