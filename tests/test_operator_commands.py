@@ -23,8 +23,11 @@ from discordcalendarbot.operator_commands import (
     DRY_RUN_FAILURE_EXIT_CODE,
     FORCE_NAMESPACE_PREFIX,
     DryRunPreview,
+    GoogleCalendarCheckResult,
+    check_google_calendar,
     daily_key_for_date,
     oauth_metadata_path,
+    run_check_google_calendar_command,
     run_dry_run_command,
     run_google_auth_login_command,
     run_reconcile_digest_command,
@@ -40,6 +43,7 @@ if TYPE_CHECKING:
 GUILD_ID = 123_456
 CHANNEL_ID = 234_567
 EXPECTED_REFUSAL_EXIT = 2
+EXPECTED_CHECK_EVENT_COUNT = 2
 KYIV = ZoneInfo("Europe/Kiev")
 
 
@@ -118,6 +122,39 @@ class FakeSendService:
         )
 
 
+class FakeCheckCalendarClient:
+    """Fake Google Calendar client for read-path check tests."""
+
+    def __init__(self) -> None:
+        """Initialize captured calls."""
+        self.calls: list[tuple[str, str]] = []
+
+    async def list_events_for_window(
+        self,
+        *,
+        calendar_id: str,
+        window: object,
+        timezone_name: str,
+    ) -> list[dict[str, Any]]:
+        """Return tagged and untagged raw events per configured calendar."""
+        _ = window
+        self.calls.append((calendar_id, timezone_name))
+        return [
+            {
+                "id": f"{calendar_id}-event",
+                "summary": "Planning #discord-daily",
+                "start": {"dateTime": "2026-05-02T08:00:00+03:00"},
+                "end": {"dateTime": "2026-05-02T09:00:00+03:00"},
+            },
+            {
+                "id": f"{calendar_id}-untagged-event",
+                "summary": "Private planning",
+                "start": {"dateTime": "2026-05-02T10:00:00+03:00"},
+                "end": {"dateTime": "2026-05-02T11:00:00+03:00"},
+            },
+        ]
+
+
 def make_dry_run_preview(
     *,
     status: DigestServiceStatus = DigestServiceStatus.POSTED,
@@ -193,6 +230,9 @@ def test_parser_exposes_operator_subcommands() -> None:
     assert dry_run.command == "dry-run"
     assert dry_run.summary_only
     assert dry_run.redact
+    check_google = parser.parse_args(["check-google-calendar", "--date", "2026-05-02"])
+    assert check_google.command == "check-google-calendar"
+    assert check_google.date == "2026-05-02"
     assert send.command == "send-digest"
     assert send.force
     assert send.confirm_force == "2026-05-02"
@@ -440,6 +480,97 @@ async def test_dry_run_summary_only_reports_service_google_failure(
     assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
     assert "could not be normalized" in output.text
     assert "0 Discord message part" not in output.text
+
+
+@pytest.mark.asyncio
+async def test_check_google_calendar_reports_safe_counters(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Google check command should print counters without event details."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fake_check(_settings: BotSettings, *, target_date: date) -> GoogleCalendarCheckResult:
+        """Return safe fake check counters."""
+        assert target_date == date(2026, 5, 2)
+        return GoogleCalendarCheckResult(
+            calendar_count=2,
+            raw_event_count=3,
+            normalized_event_count=2,
+            digest_event_count=1,
+        )
+
+    monkeypatch.setattr("discordcalendarbot.operator_commands.check_google_calendar", fake_check)
+
+    result = await run_check_google_calendar_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        output=output,
+    )
+
+    assert result.exit_code == 0
+    assert "Calendars checked: 2" in output.text
+    assert "Raw events returned: 3" in output.text
+    assert "Digest filter matches: 1" in output.text
+    assert "#discord-daily" not in output.text
+    assert "Planning" not in output.text
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_check_google_calendar_reports_safe_failure(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Google check command should return non-zero with sanitized failures."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fail_check(_settings: BotSettings, *, target_date: date) -> GoogleCalendarCheckResult:
+        """Raise a secret-bearing auth error."""
+        assert target_date == date(2026, 5, 2)
+        raise GoogleAuthError("refresh_token=secret-value")
+
+    monkeypatch.setattr("discordcalendarbot.operator_commands.check_google_calendar", fail_check)
+
+    result = await run_check_google_calendar_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        output=output,
+    )
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert "Google Calendar authentication failed" in output.text
+    assert "secret-value" not in output.text
+
+
+@pytest.mark.asyncio
+async def test_check_google_calendar_uses_window_mapping_and_filter(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Google check should use the calendar client, mapper, and configured filter."""
+    settings = make_settings(tmp_path)
+    fake_client = FakeCheckCalendarClient()
+
+    async def fake_build_calendar_client(_settings: BotSettings) -> FakeCheckCalendarClient:
+        """Return the fake check calendar client."""
+        return fake_client
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_calendar_client",
+        fake_build_calendar_client,
+    )
+
+    result = await check_google_calendar(settings, target_date=date(2026, 5, 2))
+
+    assert result.calendar_count == 1
+    assert result.raw_event_count == EXPECTED_CHECK_EVENT_COUNT
+    assert result.normalized_event_count == EXPECTED_CHECK_EVENT_COUNT
+    assert result.digest_event_count == 1
+    assert fake_client.calls == [("primary", "Europe/Kiev")]
+    assert not settings.sqlite_path.exists()
 
 
 @pytest.mark.asyncio

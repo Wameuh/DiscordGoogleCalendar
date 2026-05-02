@@ -20,11 +20,13 @@ from discordcalendarbot.calendar.auth import (
     run_oauth_login,
 )
 from discordcalendarbot.calendar.client import GoogleCalendarClient, build_calendar_service
+from discordcalendarbot.calendar.mapper import normalize_google_events
 from discordcalendarbot.config import BotSettings, load_settings
 from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher
 from discordcalendarbot.discord.formatter import DigestFormatter, DiscordMessagePart
 from discordcalendarbot.discord.publisher import DiscordPublishResult
 from discordcalendarbot.discord.sanitizer import DiscordContentSanitizer
+from discordcalendarbot.domain.digest import build_local_day_window
 from discordcalendarbot.services.digest_service import (
     DailyDigestResult,
     DailyDigestService,
@@ -95,6 +97,16 @@ class DryRunPreview:
     message_parts: tuple[DiscordMessagePart, ...]
     failure_error: object | None = None
     failure_kind: str | None = None
+
+
+@dataclass(frozen=True)
+class GoogleCalendarCheckResult:
+    """Safe counters from a Google Calendar read-path check."""
+
+    calendar_count: int
+    raw_event_count: int
+    normalized_event_count: int
+    digest_event_count: int
 
 
 class DryRunRepository(DigestRunRepository):
@@ -251,6 +263,36 @@ async def run_dry_run_command(
     return OperatorCommandResult(0, "dry_run_complete")
 
 
+async def run_check_google_calendar_command(
+    settings: BotSettings,
+    *,
+    target_date: date,
+    output: Output,
+) -> OperatorCommandResult:
+    """Check Google Calendar authentication and event retrieval without Discord."""
+    try:
+        result = await check_google_calendar(settings, target_date=target_date)
+    except Exception as error:
+        output.write(
+            f"Google Calendar check failed for {target_date.isoformat()}: "
+            f"{format_dry_run_exception(error)}\n"
+        )
+        return OperatorCommandResult(DRY_RUN_FAILURE_EXIT_CODE, type(error).__name__)
+    output.write(
+        "\n".join(
+            (
+                f"Google Calendar check for {target_date.isoformat()}: ok",
+                f"Calendars checked: {result.calendar_count}",
+                f"Raw events returned: {result.raw_event_count}",
+                f"Normalized events: {result.normalized_event_count}",
+                f"Digest filter matches: {result.digest_event_count}",
+            )
+        )
+        + "\n"
+    )
+    return OperatorCommandResult(0, "check_google_calendar_complete")
+
+
 async def run_send_digest_command(
     settings: BotSettings,
     *,
@@ -376,6 +418,41 @@ async def build_calendar_client(settings: BotSettings) -> GoogleCalendarClient:
             request_timeout_seconds=settings.google_request_timeout_seconds,
         ),
         request_timeout_seconds=settings.google_request_timeout_seconds,
+    )
+
+
+async def check_google_calendar(
+    settings: BotSettings,
+    *,
+    target_date: date,
+) -> GoogleCalendarCheckResult:
+    """Return safe Google Calendar read-path counters for a target date."""
+    calendar_client = await build_calendar_client(settings)
+    window = build_local_day_window(target_date, settings.bot_timezone)
+    digest_filter = build_digest_event_filter(settings)
+    raw_event_count = 0
+    normalized_events = []
+    for calendar_id in settings.google_calendar_ids:
+        raw_events = await calendar_client.list_events_for_window(
+            calendar_id=calendar_id,
+            window=window,
+            timezone_name=settings.bot_timezone_name,
+        )
+        raw_event_count += len(raw_events)
+        normalized_events.extend(
+            normalize_google_events(
+                raw_events,
+                calendar_id=calendar_id,
+                timezone=settings.bot_timezone,
+                window=window,
+            )
+        )
+    digest_event_count = sum(1 for event in normalized_events if digest_filter.matches(event))
+    return GoogleCalendarCheckResult(
+        calendar_count=len(settings.google_calendar_ids),
+        raw_event_count=raw_event_count,
+        normalized_event_count=len(normalized_events),
+        digest_event_count=digest_event_count,
     )
 
 

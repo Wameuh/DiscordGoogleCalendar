@@ -87,6 +87,7 @@ The v0.1.1 command surface includes local host-authenticated commands:
 ```powershell
 uv run python -m discordcalendarbot google-auth-login --confirm-write-token token.json
 uv run python -m discordcalendarbot dry-run --date 2026-05-02 --redact
+uv run python -m discordcalendarbot check-google-calendar --date 2026-05-02
 uv run python -m discordcalendarbot send-digest --date 2026-05-02
 uv run python -m discordcalendarbot send-digest --date 2026-05-02 --force --confirm-force 2026-05-02 --channel-id 456
 uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message-id 111 --confirm-reconcile 2026-05-02
@@ -95,6 +96,8 @@ uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message
 `google-auth-login` writes the token only when `--confirm-write-token` matches the configured token filename. Forced sends require both the target date confirmation and the configured Discord channel ID. Dry-run output can contain private calendar details unless `--redact` or `--summary-only` is used.
 
 `dry-run --summary-only` reports Google Calendar authentication, access, timeout, and mapping failures as command failures instead of showing `0 Discord message part(s)`. A zero-message summary means the calendar read and filtering completed successfully but produced no Discord output.
+
+`check-google-calendar` verifies the Google Calendar read path without opening Discord or writing SQLite state. It prints only safe counters for configured calendars, raw events, normalized events, and digest filter matches.
 
 ## Security Notes
 

@@ -12,6 +12,7 @@ from discordcalendarbot.app import RuntimeApplication, build_application
 from discordcalendarbot.operator_commands import (
     load_operator_settings,
     parse_target_date,
+    run_check_google_calendar_command,
     run_dry_run_command,
     run_google_auth_login_command,
     run_reconcile_digest_command,
@@ -35,6 +36,10 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run.add_argument("--redact", action="store_true")
     dry_run.add_argument("--summary-only", action="store_true")
     dry_run.set_defaults(handler=handle_dry_run)
+
+    check_google = subparsers.add_parser("check-google-calendar")
+    check_google.add_argument("--date", required=True)
+    check_google.set_defaults(handler=handle_check_google_calendar)
 
     send_digest = subparsers.add_parser("send-digest")
     send_digest.add_argument("--date", required=True)
@@ -87,6 +92,19 @@ def handle_dry_run(args: argparse.Namespace) -> int:
             target_date=parse_target_date(args.date),
             redact=args.redact,
             summary_only=args.summary_only,
+            output=sys.stdout,
+        )
+    )
+    return result.exit_code
+
+
+def handle_check_google_calendar(args: argparse.Namespace) -> int:
+    """Handle Google Calendar read-path checks."""
+    settings = load_operator_settings()
+    result = asyncio.run(
+        run_check_google_calendar_command(
+            settings,
+            target_date=parse_target_date(args.date),
             output=sys.stdout,
         )
     )
