@@ -34,7 +34,7 @@ class LogSanitizer:
         for path in self._secret_paths:
             text = text.replace(str(path), "[REDACTED_PATH]")
         if len(text) > self._max_length:
-            return f"{text[: self._max_length]}..."
+            return f"{text[: self._max_length - 3]}..."
         return text
 
     @staticmethod

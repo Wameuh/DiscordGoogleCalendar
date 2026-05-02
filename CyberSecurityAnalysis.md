@@ -155,20 +155,18 @@ This resolves the previous critical mismatch between the architecture and reposi
 - Store `forced_by`, `forced_at`, and reason fields if operator identity is available.
 - Add dry-run preview before force posting.
 
-### 7. SQLite Integrity And Concurrency Need Careful Implementation
+### 7. SQLite Integrity And Concurrency Need Continued Integration Coverage
 
-**Evidence:** SQLite is the idempotency ledger and partial delivery record. It decides whether a digest should post, skip, retry, or reconcile.
+**Evidence:** SQLite is the idempotency ledger and partial delivery record. TODO 5 implements repository-level claim/status transitions, partial delivery blocking, sanitized errors, retention cleanup, WAL mode, and Unix permission handling for the database and sidecars. Service-level wiring and reconciliation commands are still future steps.
 
 **Risk:** Incorrect transaction boundaries, stale lock handling, clock skew, or SQLite write failures can cause duplicate posts, missed posts, or unrecoverable partial state.
 
-**Recommendation:**
+**Remaining recommendation:**
 
-- Use atomic insert/update transactions for claim operations.
-- Enable WAL mode if appropriate for the deployment.
-- Ensure `lock_expires_at` uses a controlled `Clock` and timezone-aware timestamps.
-- Store partial Discord message IDs immediately after each accepted send.
+- Keep service-level integration on the repository protocol rather than concrete SQLite types.
+- Store partial Discord message IDs immediately after each accepted send when publisher wiring is added.
 - Treat database write failure after Discord acceptance as high-severity.
-- Add property-style tests or concurrency tests for duplicate claim attempts.
+- Add broader concurrency and crash-recovery tests once the digest service and publisher are wired.
 
 ### 8. Dependency Supply Chain Controls Are Planned But Not Yet Enforced
 
@@ -217,16 +215,14 @@ This resolves the previous critical mismatch between the architecture and reposi
 
 ## Medium Issues
 
-### 11. Data Retention Is Mentioned But Not Specified
+### 11. Data Retention Is Implemented At Repository Level But Not Yet Scheduled
 
-**Evidence:** SQLite retention is required, but no retention period or cleanup behavior is defined.
+**Evidence:** TODO 5 implements repository cleanup for successful/skipped runs older than 90 days and failed runs older than 180 days, while preserving unresolved partial deliveries. A scheduled or operator-triggered cleanup path is still pending.
 
 **Risk:** Run metadata, errors, and message IDs accumulate indefinitely and increase exposure after host compromise.
 
-**Recommendation:**
+**Remaining recommendation:**
 
-- Define retention for successful, skipped, failed, and partial runs.
-- Keep partial and failed runs longer than successful runs if needed for operations.
 - Add a cleanup command or scheduled maintenance task.
 - Ensure cleanup does not delete unresolved partial deliveries.
 
@@ -356,7 +352,7 @@ This resolves the previous critical mismatch between the architecture and reposi
 1. Implement cross-platform secret and state file permission checks.
 2. Implement the Discord content sanitizer and URL policy before any posting feature.
 3. Add centralized log and exception sanitization.
-4. Add SQLite atomic claim, partial delivery, sanitization, and retention behavior.
+4. Wire SQLite atomic claim, partial delivery, sanitization, and retention behavior into the digest service and operator commands.
 5. Add force/reconcile operator audit fields and confirmation flows.
 6. Add OAuth bootstrap scope and account verification.
 7. Add CI secret scanning and dependency vulnerability scanning.
