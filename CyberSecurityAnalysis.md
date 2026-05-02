@@ -37,7 +37,7 @@ There is no public inbound HTTP server in v1. The bot needs outbound access to D
 - Configuration is environment-backed and typed.
 - Paths are resolved and validated before use.
 - Secret files and state files are ignored in `.gitignore`.
-- Startup includes secret file permission checks.
+- Startup is designed to include secret file permission checks; TODO 2 adds the cross-platform permission-check primitives and adapter tests, while startup enforcement is wired in a later integration step.
 - Logging sanitization is included in the runtime lifecycle.
 - SQLite stores hashes for calendar IDs and event tags rather than raw values in run keys.
 - Partial delivery reconciliation is planned.

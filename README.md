@@ -52,6 +52,25 @@ uv run ruff format --check .
 uv run pytest
 ```
 
+## Configuration
+
+The current implementation includes the first typed settings primitives. Runtime startup wiring is still being built, but these environment variables are already treated as required by the configuration layer:
+
+```text
+DISCORD_BOT_TOKEN=
+DISCORD_GUILD_ID=
+DISCORD_CHANNEL_ID=
+GOOGLE_CREDENTIALS_PATH=
+GOOGLE_TOKEN_PATH=
+GOOGLE_CALENDAR_IDS=primary
+EVENT_TAG=#discord-daily
+BOT_TIMEZONE=Europe/Kiev
+DAILY_DIGEST_TIME=07:00
+SQLITE_PATH=./data/discordcalendarbot.sqlite3
+```
+
+Implemented validation currently covers required values, positive Discord IDs, timezone names, `HH:MM` time values, comma-separated calendar IDs and tag fields, role mention configuration, bounded timeout/message settings, resolved paths, and whether in-repository secret/state paths are ignored by git.
+
 ## Security Notes
 
 The bot handles sensitive data: Discord bot tokens, Google OAuth credentials, Google refresh tokens, private calendar event content, Discord channel metadata, logs, and SQLite state.

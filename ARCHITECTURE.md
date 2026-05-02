@@ -128,7 +128,7 @@ Tests should live under `tests`.
 : Pure domain models such as `CalendarEvent`, `EventTime`, and normalized calendar metadata.
 
 `domain/digest.py`
-: Pure digest rules: local-day overlap, sorting, empty-day behavior, and digest data structures.
+: Pure digest rules. TODO 2 implements local-day windows, overlap checks, and digest data structures; sorting and empty-day behavior are completed with tag filtering and formatting in TODO 4.
 
 `calendar/auth.py`
 : Google OAuth credential loading, refresh, and first-time login support.
