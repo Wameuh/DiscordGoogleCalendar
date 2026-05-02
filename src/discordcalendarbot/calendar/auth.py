@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Protocol
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 READONLY_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 EXPECTED_SCOPES: frozenset[str] = frozenset({READONLY_CALENDAR_SCOPE})
@@ -104,3 +106,45 @@ def assert_token_write_allowed(token_path: Path, *, force: bool = False) -> None
     """Refuse accidental OAuth token overwrites."""
     if token_path.exists() and not force:
         raise GoogleAuthError(f"OAuth token already exists: {token_path}")
+
+
+def run_oauth_login(
+    *,
+    credentials_path: Path,
+    token_path: Path,
+    metadata_path: Path,
+    now: datetime,
+    force: bool = False,
+) -> OAuthTokenMetadata:
+    """Run an explicit local OAuth browser flow and write the authorized token."""
+    assert_token_write_allowed(token_path, force=force)
+    flow = InstalledAppFlow.from_client_secrets_file(
+        str(credentials_path),
+        scopes=[READONLY_CALENDAR_SCOPE],
+    )
+    credentials = flow.run_local_server(port=0)
+    validate_readonly_scopes(credentials.scopes)
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(credentials.to_json(), encoding="utf-8")
+    set_restrictive_token_permissions(token_path)
+    metadata = OAuthTokenMetadata(
+        account_email=account_email_from_credentials(credentials),
+        granted_scopes=tuple(credentials.scopes or ()),
+        created_at=now,
+    )
+    write_oauth_metadata(metadata_path, metadata, force=force)
+    return metadata
+
+
+def account_email_from_credentials(credentials: Credentials) -> str | None:
+    """Return non-secret account email metadata when available from credentials."""
+    account_email = getattr(credentials, "account_email", None)
+    if isinstance(account_email, str) and "@" in account_email:
+        return account_email
+    return None
+
+
+def set_restrictive_token_permissions(token_path: Path) -> None:
+    """Set restrictive token file permissions on platforms that support chmod semantics."""
+    if os.name != "nt":
+        token_path.chmod(0o600)

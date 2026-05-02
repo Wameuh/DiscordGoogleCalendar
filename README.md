@@ -71,6 +71,20 @@ SQLITE_PATH=./data/discordcalendarbot.sqlite3
 
 Implemented validation currently covers required values, positive Discord IDs, timezone names, `HH:MM` time values, comma-separated calendar IDs and tag fields, role mention configuration, bounded timeout/message settings, resolved paths, and whether in-repository secret/state paths are ignored by git.
 
+## Local Operator Commands
+
+The v0.1.1 command surface includes local host-authenticated commands:
+
+```powershell
+uv run python -m discordcalendarbot google-auth-login --confirm-write-token token.json
+uv run python -m discordcalendarbot dry-run --date 2026-05-02 --redact
+uv run python -m discordcalendarbot send-digest --date 2026-05-02
+uv run python -m discordcalendarbot send-digest --date 2026-05-02 --force --confirm-force 2026-05-02 --channel-id 456
+uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message-id 111 --confirm-reconcile 2026-05-02
+```
+
+`google-auth-login` writes the token only when `--confirm-write-token` matches the configured token filename. Forced sends require both the target date confirmation and the configured Discord channel ID. Dry-run output can contain private calendar details unless `--redact` or `--summary-only` is used.
+
 ## Security Notes
 
 The bot handles sensitive data: Discord bot tokens, Google OAuth credentials, Google refresh tokens, private calendar event content, Discord channel metadata, logs, and SQLite state.

@@ -229,9 +229,10 @@ class DailyDigestService:
         target_date: date,
         *,
         lock_owner: str = "scheduler",
+        namespace: str = "daily",
     ) -> DailyDigestResult:
         """Run one idempotent daily digest for the target local date."""
-        key = build_digest_run_key(self._settings, target_date)
+        key = build_digest_run_key(self._settings, target_date, namespace=namespace)
         retry_deadline = self._retry_deadline()
         claim = await self._repository.claim_run(
             key,
@@ -429,7 +430,12 @@ class DailyDigestService:
         return self._retry_policy.monotonic() + budget
 
 
-def build_digest_run_key(settings: BotSettings, target_date: date) -> DigestRunKey:
+def build_digest_run_key(
+    settings: BotSettings,
+    target_date: date,
+    *,
+    namespace: str = "daily",
+) -> DigestRunKey:
     """Build a stable digest run key without storing raw calendar IDs or tags."""
     return DigestRunKey(
         target_date=target_date,
@@ -438,6 +444,7 @@ def build_digest_run_key(settings: BotSettings, target_date: date) -> DigestRunK
         channel_id=str(settings.discord_channel_id),
         calendar_ids_hash=stable_config_hash(settings.google_calendar_ids),
         event_tag_hash=stable_config_hash((settings.event_tag,)),
+        namespace=namespace,
     )
 
 

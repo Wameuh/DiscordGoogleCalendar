@@ -85,6 +85,7 @@ src/discordcalendarbot/
   discord/
     __init__.py
     bot.py
+    cli_publisher.py
     publisher.py
     formatter.py
     sanitizer.py
@@ -103,6 +104,7 @@ src/discordcalendarbot/
   services/
     __init__.py
     digest_service.py
+  operator_commands.py
 ```
 
 Tests should live under `tests`.
@@ -116,7 +118,10 @@ Tests should live under `tests`.
 : Composition root. It builds settings, logging, Google clients, Discord clients, storage, scheduler, and services.
 
 `cli.py`
-: Local operator commands, including OAuth bootstrap, dry run, and manual digest sending.
+: Thin argparse entrypoint for local operator commands.
+
+`operator_commands.py`
+: Local operator command implementations, including OAuth bootstrap, dry run, manual digest sending, forced-send confirmation, and reconciliation.
 
 `config.py`
 : Typed environment-backed settings. It validates secrets, Discord IDs, calendar IDs, timezone, daily post time, tag behavior, and storage path.
@@ -144,6 +149,9 @@ Tests should live under `tests`.
 
 `discord/bot.py`
 : Owns the `discord.py` bot lifecycle, minimal intents, readiness handling, channel validation, and scheduler startup guard.
+
+`discord/cli_publisher.py`
+: Temporary gateway-ready Discord publisher used by local `send-digest` commands.
 
 `discord/publisher.py`
 : Sends messages to the configured Discord channel and applies safe mention behavior.
@@ -668,11 +676,11 @@ The bot should expose local CLI commands even though it is primarily a long-runn
 Suggested commands:
 
 ```text
-uv run python -m discordcalendarbot google-auth-login
+uv run python -m discordcalendarbot google-auth-login --confirm-write-token token.json
 uv run python -m discordcalendarbot dry-run --date 2026-05-02
 uv run python -m discordcalendarbot send-digest --date 2026-05-02
-uv run python -m discordcalendarbot send-digest --date 2026-05-02 --force --confirm-force 2026-05-02
-uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message-id <discord_message_id>
+uv run python -m discordcalendarbot send-digest --date 2026-05-02 --force --confirm-force 2026-05-02 --channel-id <discord_channel_id>
+uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message-id <discord_message_id> --confirm-reconcile 2026-05-02
 ```
 
 `dry-run` should:

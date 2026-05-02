@@ -29,12 +29,13 @@ class DigestRunKey:
     channel_id: str
     calendar_ids_hash: str
     event_tag_hash: str
+    namespace: str = "daily"
 
     @property
     def value(self) -> str:
         """Return the storage key."""
         return (
-            f"daily:{self.target_date.isoformat()}:{self.timezone}:{self.guild_id}:"
+            f"{self.namespace}:{self.target_date.isoformat()}:{self.timezone}:{self.guild_id}:"
             f"{self.channel_id}:{self.calendar_ids_hash}:{self.event_tag_hash}"
         )
 
