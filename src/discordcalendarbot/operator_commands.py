@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -234,7 +234,7 @@ async def run_google_auth_login_command(
         credentials_path=settings.google_credentials_path,
         token_path=settings.google_token_path,
         metadata_path=oauth_metadata_path(settings.google_token_path),
-        now=datetime.now(tz=timezone.utc),
+        now=datetime.now(tz=UTC),
         force=force,
     )
     output.write(

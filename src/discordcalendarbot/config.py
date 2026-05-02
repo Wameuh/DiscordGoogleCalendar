@@ -8,7 +8,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import time
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -53,7 +53,7 @@ DISCORD_MAX_MESSAGE_CHARS = 2_000
 EXPECTED_TIME_PARTS = 2
 
 
-class EventFilterMode(str, Enum):
+class EventFilterMode(StrEnum):
     """Supported calendar event filtering modes."""
 
     TAGGED = "tagged"

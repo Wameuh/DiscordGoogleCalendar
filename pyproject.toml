@@ -3,7 +3,7 @@ name = "discordcalendarbot"
 version = "0.1.1"
 description = "Discord bot that posts tagged Google Calendar daily digests."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "apscheduler>=3.10.4",
     "aiosqlite>=0.20.0",
@@ -33,7 +33,7 @@ package = true
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["A", "ANN", "B", "C4", "E", "F", "I", "N", "PERF", "PL", "RUF", "S", "UP", "W"]

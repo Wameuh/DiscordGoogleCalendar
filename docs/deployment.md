@@ -4,7 +4,7 @@ This guide covers v0.1.1 of Discord Calendar Bot. The bot is a long-running outb
 
 ## Setup Overview
 
-1. Install Python and `uv`.
+1. Install Python 3.12 and `uv`.
 2. Create a Discord bot with only the permissions needed for the target channel.
 3. Create Google OAuth credentials for an installed application.
 4. Put `.env`, Google credentials, OAuth token, SQLite state, and logs in a private directory.
@@ -12,6 +12,8 @@ This guide covers v0.1.1 of Discord Calendar Bot. The bot is a long-running outb
 6. Start the bot under a dedicated least-privilege account and supervisor.
 
 The first version intentionally has no FastAPI app, inbound web server, Discord privileged message-content intent, Google write scope, or multi-guild configuration.
+
+Python 3.12 is the supported runtime. The repository pins the runtime in `.python-version`, and CI reads that file when setting up Python.
 
 ## Discord Setup
 

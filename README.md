@@ -27,6 +27,7 @@ The project should work on:
 
 Platform expectations:
 
+- Python 3.12 is required. The repository pins this through `.python-version`, which is also used by CI.
 - Use `uv` for dependency and command execution on both platforms.
 - Use environment variables or a local `.env` file for configuration.
 - Run the bot under a dedicated least-privilege user or service account.

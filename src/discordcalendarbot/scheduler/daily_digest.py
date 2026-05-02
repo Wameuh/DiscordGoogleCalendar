@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from typing import Any, Protocol
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -106,7 +106,7 @@ class DailyDigestScheduler:
         logger.info(
             "Evaluated startup digest catch-up",
             extra={
-                "utc_time": datetime.now(tz=timezone.utc).isoformat(),
+                "utc_time": datetime.now(tz=UTC).isoformat(),
                 "local_time": now.isoformat(),
                 "target_date": decision.target_date.isoformat(),
                 "reason": decision.reason,

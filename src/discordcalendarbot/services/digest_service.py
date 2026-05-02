@@ -10,7 +10,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol
 
 from discordcalendarbot.calendar.auth import GoogleAuthError
@@ -49,7 +49,7 @@ ERROR_KIND_BY_TYPE = (
 )
 
 
-class DigestServiceStatus(str, Enum):
+class DigestServiceStatus(StrEnum):
     """High-level service result states."""
 
     POSTED = "posted"

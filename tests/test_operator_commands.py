@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -269,7 +269,7 @@ def test_run_oauth_login_writes_token_and_metadata(
         credentials_path=tmp_path / "credentials.json",
         token_path=token_path,
         metadata_path=metadata_path,
-        now=datetime(2026, 5, 2, 7, tzinfo=timezone.utc),
+        now=datetime(2026, 5, 2, 7, tzinfo=UTC),
     )
 
     assert token_path.exists()
@@ -309,7 +309,7 @@ async def test_google_auth_login_prints_metadata(
         return OAuthTokenMetadata(
             account_email="operator@example.com",
             granted_scopes=(READONLY_CALENDAR_SCOPE,),
-            created_at=datetime(2026, 5, 2, 7, tzinfo=timezone.utc),
+            created_at=datetime(2026, 5, 2, 7, tzinfo=UTC),
         )
 
     monkeypatch.setattr("discordcalendarbot.operator_commands.run_oauth_login", fake_login)
