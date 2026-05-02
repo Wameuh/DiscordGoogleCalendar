@@ -24,11 +24,14 @@ from discordcalendarbot.operator_commands import (
     DRY_RUN_FAILURE_EXIT_CODE,
     FORCE_NAMESPACE_PREFIX,
     DryRunPreview,
+    FullDigestCheckResult,
     GoogleCalendarCheckResult,
+    build_full_digest_check,
     check_google_calendar,
     daily_key_for_date,
     oauth_metadata_path,
     run_check_discord_command,
+    run_check_full_digest_command,
     run_check_google_calendar_command,
     run_dry_run_command,
     run_google_auth_login_command,
@@ -237,6 +240,9 @@ def test_parser_exposes_operator_subcommands() -> None:
     assert check_google.date == "2026-05-02"
     check_discord = parser.parse_args(["check-discord"])
     assert check_discord.command == "check-discord"
+    check_full = parser.parse_args(["check-full-digest", "--date", "2026-05-02"])
+    assert check_full.command == "check-full-digest"
+    assert check_full.date == "2026-05-02"
     assert send.command == "send-digest"
     assert send.force
     assert send.confirm_force == "2026-05-02"
@@ -690,6 +696,196 @@ def test_check_discord_handler_uses_discord_only_settings(monkeypatch: MonkeyPat
 
     assert handle_check_discord(object()) == 0
     assert calls == [discord_settings]
+
+
+@pytest.mark.asyncio
+async def test_build_full_digest_check_reads_filters_and_formats_without_state(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Full digest check should read, filter, and format without SQLite or Discord publishing."""
+    settings = make_settings(tmp_path)
+    fake_client = FakeCheckCalendarClient()
+
+    async def fake_build_calendar_client(_settings: BotSettings) -> FakeCheckCalendarClient:
+        """Return the fake check calendar client."""
+        return fake_client
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_calendar_client",
+        fake_build_calendar_client,
+    )
+
+    result = await build_full_digest_check(settings, target_date=date(2026, 5, 2))
+
+    assert result.calendar_count == 1
+    assert result.raw_event_count == EXPECTED_CHECK_EVENT_COUNT
+    assert result.normalized_event_count == EXPECTED_CHECK_EVENT_COUNT
+    assert result.digest_event_count == 1
+    assert result.message_part_count == 1
+    assert result.should_post
+    assert fake_client.calls == [("primary", "Europe/Kiev")]
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_check_full_digest_reports_safe_counters_and_permissions(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Full digest command should print only safe counters and permission confirmations."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+    discord_checks = 0
+
+    async def fake_build_full_digest_check(
+        _settings: BotSettings,
+        *,
+        target_date: date,
+    ) -> FullDigestCheckResult:
+        """Return safe fake full digest counters."""
+        assert target_date == date(2026, 5, 2)
+        return FullDigestCheckResult(
+            calendar_count=2,
+            raw_event_count=3,
+            normalized_event_count=2,
+            digest_event_count=1,
+            message_part_count=1,
+            should_post=True,
+        )
+
+    async def fake_check_discord_target(_settings: object) -> object:
+        """Record Discord validation without sending messages."""
+        nonlocal discord_checks
+        discord_checks += 1
+        return object()
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_full_digest_check",
+        fake_build_full_digest_check,
+    )
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.check_discord_target",
+        fake_check_discord_target,
+    )
+
+    result = await run_check_full_digest_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        output=output,
+    )
+
+    assert result.exit_code == 0
+    assert discord_checks == 1
+    assert "Full digest check for 2026-05-02: ok" in output.text
+    assert "Raw events returned: 3" in output.text
+    assert "Discord message parts formatted: 1" in output.text
+    assert "Send Messages permission: yes" in output.text
+    assert "Planning" not in output.text
+    assert "#discord-daily" not in output.text
+    assert "primary" not in output.text
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_check_full_digest_reports_safe_discord_failure(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Full digest command should not echo configured IDs from Discord failures."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fake_build_full_digest_check(
+        _settings: BotSettings,
+        *,
+        target_date: date,
+    ) -> FullDigestCheckResult:
+        """Return safe fake full digest counters."""
+        assert target_date == date(2026, 5, 2)
+        return FullDigestCheckResult(
+            calendar_count=1,
+            raw_event_count=1,
+            normalized_event_count=1,
+            digest_event_count=1,
+            message_part_count=1,
+            should_post=True,
+        )
+
+    async def fail_check_discord_target(_settings: object) -> object:
+        """Raise an error that includes raw configured identifiers."""
+        raise DiscordRuntimeError(
+            f"Configured Discord channel not found: {settings.discord_channel_id}"
+        )
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_full_digest_check",
+        fake_build_full_digest_check,
+    )
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.check_discord_target",
+        fail_check_discord_target,
+    )
+
+    result = await run_check_full_digest_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        output=output,
+    )
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert "Discord channel could not be resolved" in output.text
+    assert str(settings.discord_channel_id) not in output.text
+    assert str(settings.discord_guild_id) not in output.text
+    assert settings.discord_bot_token not in output.text
+
+
+@pytest.mark.asyncio
+async def test_check_full_digest_stops_before_discord_after_google_failure(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Full digest command should not validate Discord after Google/read failures."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+    discord_checks = 0
+
+    async def fail_build_full_digest_check(
+        _settings: BotSettings,
+        *,
+        target_date: date,
+    ) -> FullDigestCheckResult:
+        """Raise a secret-bearing Google auth error before Discord validation."""
+        assert target_date == date(2026, 5, 2)
+        raise GoogleAuthError("private diagnostic value")
+
+    async def fake_check_discord_target(_settings: object) -> object:
+        """Record unexpected Discord validation."""
+        nonlocal discord_checks
+        discord_checks += 1
+        return object()
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_full_digest_check",
+        fail_build_full_digest_check,
+    )
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.check_discord_target",
+        fake_check_discord_target,
+    )
+
+    result = await run_check_full_digest_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        output=output,
+    )
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert discord_checks == 0
+    assert "Google Calendar authentication failed" in output.text
+    assert "private diagnostic value" not in output.text
+    assert settings.discord_bot_token not in output.text
+    assert not settings.sqlite_path.exists()
 
 
 @pytest.mark.asyncio

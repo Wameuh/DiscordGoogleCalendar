@@ -32,7 +32,8 @@ from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher
 from discordcalendarbot.discord.formatter import DigestFormatter, DiscordMessagePart
 from discordcalendarbot.discord.publisher import DiscordPublishResult
 from discordcalendarbot.discord.sanitizer import DiscordContentSanitizer
-from discordcalendarbot.domain.digest import build_local_day_window
+from discordcalendarbot.domain.digest import build_daily_digest, build_local_day_window
+from discordcalendarbot.domain.events import CalendarEvent
 from discordcalendarbot.services.digest_service import (
     DailyDigestResult,
     DailyDigestService,
@@ -113,6 +114,18 @@ class GoogleCalendarCheckResult:
     raw_event_count: int
     normalized_event_count: int
     digest_event_count: int
+
+
+@dataclass(frozen=True)
+class FullDigestCheckResult:
+    """Safe counters from a full no-publish digest check."""
+
+    calendar_count: int
+    raw_event_count: int
+    normalized_event_count: int
+    digest_event_count: int
+    message_part_count: int
+    should_post: bool
 
 
 class DryRunRepository(DigestRunRepository):
@@ -331,6 +344,50 @@ async def run_check_discord_command(
     return OperatorCommandResult(0, "check_discord_complete")
 
 
+async def run_check_full_digest_command(
+    settings: BotSettings,
+    *,
+    target_date: date,
+    output: Output,
+) -> OperatorCommandResult:
+    """Check Google reading, digest formatting, and Discord permissions without publishing."""
+    try:
+        result = await build_full_digest_check(settings, target_date=target_date)
+    except Exception as error:
+        output.write(
+            f"Full digest check failed for {target_date.isoformat()}: "
+            f"{format_dry_run_exception(error)}\n"
+        )
+        return OperatorCommandResult(DRY_RUN_FAILURE_EXIT_CODE, type(error).__name__)
+    try:
+        await check_discord_target(discord_check_settings_from_bot_settings(settings))
+    except Exception as error:
+        output.write(
+            f"Full digest check failed for {target_date.isoformat()}: "
+            f"{format_discord_check_failure(error)}\n"
+        )
+        return OperatorCommandResult(DRY_RUN_FAILURE_EXIT_CODE, type(error).__name__)
+    output.write(
+        "\n".join(
+            (
+                f"Full digest check for {target_date.isoformat()}: ok",
+                f"Calendars checked: {result.calendar_count}",
+                f"Raw events returned: {result.raw_event_count}",
+                f"Normalized events: {result.normalized_event_count}",
+                f"Digest filter matches: {result.digest_event_count}",
+                f"Discord message parts formatted: {result.message_part_count}",
+                f"Digest would post: {yes_no(result.should_post)}",
+                "Guild resolved: yes",
+                "Channel resolved: yes",
+                "View Channel permission: yes",
+                "Send Messages permission: yes",
+            )
+        )
+        + "\n"
+    )
+    return OperatorCommandResult(0, "check_full_digest_complete")
+
+
 async def run_send_digest_command(
     settings: BotSettings,
     *,
@@ -494,6 +551,69 @@ async def check_google_calendar(
     )
 
 
+async def build_full_digest_check(
+    settings: BotSettings,
+    *,
+    target_date: date,
+) -> FullDigestCheckResult:
+    """Return safe counters after rendering a digest without publishing or storing state."""
+    calendar_client = await build_calendar_client(settings)
+    window = build_local_day_window(target_date, settings.bot_timezone)
+    digest_filter = build_digest_event_filter(settings)
+    raw_event_count = 0
+    normalized_events: list[CalendarEvent] = []
+    for calendar_id in settings.google_calendar_ids:
+        raw_events = await calendar_client.list_events_for_window(
+            calendar_id=calendar_id,
+            window=window,
+            timezone_name=settings.bot_timezone_name,
+        )
+        raw_event_count += len(raw_events)
+        normalized_events.extend(
+            normalize_google_events(
+                raw_events,
+                calendar_id=calendar_id,
+                timezone=settings.bot_timezone,
+                window=window,
+            )
+        )
+    digest_events = tuple(
+        CalendarEvent(
+            calendar_id=event.calendar_id,
+            event_id=event.event_id,
+            title=digest_filter.clean_title(event.title),
+            time=event.time,
+            description=event.description,
+            location=event.location,
+            html_link=event.html_link,
+            status=event.status,
+        )
+        for event in normalized_events
+        if digest_filter.matches(event)
+    )
+    digest = build_daily_digest(
+        target_date=target_date,
+        timezone_name=settings.bot_timezone_name,
+        timezone=settings.bot_timezone,
+        events=digest_events,
+        post_empty_digest=settings.post_empty_digest,
+        empty_digest_text=settings.empty_digest_text,
+    )
+    formatter = DigestFormatter(
+        sanitizer=DiscordContentSanitizer(),
+        max_chars=settings.max_discord_message_chars,
+    )
+    message_parts = formatter.format_digest(digest, settings.bot_timezone)
+    return FullDigestCheckResult(
+        calendar_count=len(settings.google_calendar_ids),
+        raw_event_count=raw_event_count,
+        normalized_event_count=len(normalized_events),
+        digest_event_count=len(digest_events),
+        message_part_count=len(message_parts),
+        should_post=digest.should_post,
+    )
+
+
 async def build_operator_digest_service(
     settings: BotSettings,
     *,
@@ -524,6 +644,18 @@ def daily_key_for_date(settings: BotSettings, target_date: date) -> DigestRunKey
 def oauth_metadata_path(token_path: Path) -> Path:
     """Return the non-secret OAuth metadata path for a token file."""
     return token_path.with_name(f"{token_path.name}.metadata.json")
+
+
+def discord_check_settings_from_bot_settings(settings: BotSettings) -> DiscordCheckSettings:
+    """Build Discord-only check settings from full runtime settings."""
+    return DiscordCheckSettings(
+        discord_bot_token=settings.discord_bot_token,
+        discord_guild_id=settings.discord_guild_id,
+        discord_channel_id=settings.discord_channel_id,
+        discord_publish_timeout_seconds=settings.discord_publish_timeout_seconds,
+        enable_role_mention=settings.enable_role_mention,
+        discord_role_mention_id=settings.discord_role_mention_id,
+    )
 
 
 def redact_message(content: str) -> str:
@@ -575,6 +707,11 @@ def format_discord_check_failure(error: Exception) -> str:
     return (
         "Discord connectivity check failed; verify the bot token, guild, channel, and permissions."
     )
+
+
+def yes_no(value: bool) -> str:
+    """Format booleans for safe operator counters."""
+    return "yes" if value else "no"
 
 
 def dry_run_kind_for_exception(error: Exception) -> str:

@@ -14,6 +14,7 @@ from discordcalendarbot.operator_commands import (
     load_operator_settings,
     parse_target_date,
     run_check_discord_command,
+    run_check_full_digest_command,
     run_check_google_calendar_command,
     run_dry_run_command,
     run_google_auth_login_command,
@@ -45,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_discord = subparsers.add_parser("check-discord")
     check_discord.set_defaults(handler=handle_check_discord)
+
+    check_full = subparsers.add_parser("check-full-digest")
+    check_full.add_argument("--date", required=True)
+    check_full.set_defaults(handler=handle_check_full_digest)
 
     send_digest = subparsers.add_parser("send-digest")
     send_digest.add_argument("--date", required=True)
@@ -122,6 +127,19 @@ def handle_check_discord(_args: argparse.Namespace) -> int:
     result = asyncio.run(
         run_check_discord_command(
             settings,
+            output=sys.stdout,
+        )
+    )
+    return result.exit_code
+
+
+def handle_check_full_digest(args: argparse.Namespace) -> int:
+    """Handle full no-publish digest checks."""
+    settings = load_operator_settings()
+    result = asyncio.run(
+        run_check_full_digest_command(
+            settings,
+            target_date=parse_target_date(args.date),
             output=sys.stdout,
         )
     )

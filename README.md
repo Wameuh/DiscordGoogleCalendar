@@ -89,6 +89,7 @@ uv run python -m discordcalendarbot google-auth-login --confirm-write-token toke
 uv run python -m discordcalendarbot dry-run --date 2026-05-02 --redact
 uv run python -m discordcalendarbot check-google-calendar --date 2026-05-02
 uv run python -m discordcalendarbot check-discord
+uv run python -m discordcalendarbot check-full-digest --date 2026-05-02
 uv run python -m discordcalendarbot send-digest --date 2026-05-02
 uv run python -m discordcalendarbot send-digest --date 2026-05-02 --force --confirm-force 2026-05-02 --channel-id 456
 uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message-id 111 --confirm-reconcile 2026-05-02
@@ -101,6 +102,8 @@ uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message
 `check-google-calendar` verifies the Google Calendar read path without opening Discord or writing SQLite state. It prints only safe counters for configured calendars, raw events, normalized events, and digest filter matches.
 
 `check-discord` verifies the bot token can connect to Discord, resolve the configured guild and channel, and confirm `View Channel` plus `Send Messages` permissions. It does not load Google settings, open Google Calendar clients, write SQLite state, or send a Discord message.
+
+`check-full-digest` verifies Google Calendar reading, digest filtering, Discord message formatting, and Discord target permissions together without sending a Discord message or writing SQLite state. It prints only safe status and counters.
 
 ## Security Notes
 

@@ -110,6 +110,12 @@ Verify only Discord connectivity and target permissions without Google Calendar 
 uv run python -m discordcalendarbot check-discord
 ```
 
+Verify the full read, filter, format, and Discord-permission path without sending a message or writing SQLite state:
+
+```powershell
+uv run python -m discordcalendarbot check-full-digest --date 2026-05-02
+```
+
 Send while respecting normal idempotency:
 
 ```powershell
@@ -136,6 +142,8 @@ If dry-run cannot read Google Calendar data, it exits non-zero and reports a saf
 `check-google-calendar` authenticates with Google, queries configured calendars for the local-day window, normalizes events, applies the configured digest filter, and prints only safe counters. It does not print event titles, descriptions, locations, links, raw calendar IDs, OAuth payloads, or Discord data.
 
 `check-discord` connects with minimal guild intents, validates the configured guild and channel, confirms `View Channel` and `Send Messages`, then disconnects without sending a message.
+
+`check-full-digest` authenticates with Google, reads configured calendars, applies the configured digest filter, formats Discord message payloads in memory, validates Discord target permissions, and prints only safe status, counters, and permission confirmations. It never calls Discord publishing and does not open or write SQLite state.
 
 ## Windows Deployment
 
