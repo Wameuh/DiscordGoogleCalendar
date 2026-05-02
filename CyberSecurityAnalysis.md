@@ -4,11 +4,11 @@
 
 This document is a fresh architecture-level security review of `ARCHITECTURE.md` for the Discord Calendar Bot. It reviews the updated architecture as designed, plus the current repository state where it affects security assumptions.
 
-This is not a source-code audit or penetration test. The application is still mostly at architecture/planning stage, so many findings are implementation risks: they are security requirements that must be proven in code, tests, CI, and deployment documentation.
+This is not a penetration test. The v0.1.1 implementation now covers the planned daily digest path, local operator commands, tests, CI, and deployment documentation. The remaining findings are operational risks and future hardening items that must stay visible as the bot is deployed and extended.
 
 ## System Summary
 
-The planned system is a long-running `discord.py` bot with an internal `APScheduler` daily job. It reads one or more private Google Calendars through OAuth, filters events by a configured marker, formats a Discord-safe digest, and posts it to one configured guild and channel.
+The system is a long-running `discord.py` bot with an internal `APScheduler` daily job. It reads one or more private Google Calendars through OAuth, filters events by a configured marker, formats a Discord-safe digest, and posts it to one configured guild and channel.
 
 There is no public inbound HTTP server in v1. The bot needs outbound access to Discord and Google Calendar.
 
@@ -37,13 +37,13 @@ There is no public inbound HTTP server in v1. The bot needs outbound access to D
 - Configuration is environment-backed and typed.
 - Paths are resolved and validated before use.
 - Secret files and state files are ignored in `.gitignore`.
-- Startup is designed to include secret file permission checks; TODO 2 adds the cross-platform permission-check primitives and adapter tests, while startup enforcement is wired in a later integration step.
+- Secret file and SQLite permission primitives are implemented, with Unix SQLite file/sidecar enforcement and explicit Windows SQLite ACL warnings.
 - Logging sanitization is included in the runtime lifecycle.
 - SQLite stores hashes for calendar IDs and event tags rather than raw values in run keys.
-- Partial delivery reconciliation is planned.
-- `--force` requires `--confirm-force`.
-- Dependency lockfile review, secret scanning, and vulnerability scanning are called out.
-- Windows and Linux deployment hardening are both acknowledged.
+- Partial delivery reconciliation is implemented through local operator commands.
+- `--force` requires `--confirm-force` and the configured `--channel-id`.
+- `uv.lock` is committed, and CI runs Ruff, pytest, dependency vulnerability auditing, and secret scanning.
+- Windows and Linux deployment hardening are documented in `docs/deployment.md`.
 
 ## Current Repository Check
 
@@ -60,20 +60,20 @@ data/
 .state/
 ```
 
-This resolves the previous critical mismatch between the architecture and repository ignore rules. The remaining security work is mostly implementation and operational proof.
+This resolves the previous critical mismatch between the architecture and repository ignore rules. The remaining security work is mostly operational proof and future hardening.
 
 ## Critical Issues
 
-### 1. Secret Permission Validation Is Architecture-Required But Hard To Implement Correctly Cross-Platform
+### 1. Secret Permission Enforcement Still Needs Production Startup Policy
 
-**Evidence:** The architecture requires file permission checks for `.env`, Google credentials, OAuth token files, SQLite state, and parent directories on both Windows and Linux.
+**Evidence:** Permission-check primitives exist, OAuth token writes use restrictive Unix permissions, and SQLite sets restrictive Unix permissions for the database and sidecars. Windows SQLite ACL inspection currently returns an explicit warning, and broader startup enforcement policy is still deployment-sensitive.
 
 **Risk:** If these checks are incomplete or warning-only, local users or compromised processes may read Google refresh tokens, Discord bot tokens, SQLite state, or logs. Windows ACL inspection is especially easy to under-specify.
 
 **Recommendation:**
 
-- Implement a dedicated `security/filesystem_permissions.py` module with platform-specific behavior.
-- On Linux and macOS, fail closed for group/world-readable secret files unless an explicit development override is set.
+- Keep `security/filesystem_permissions.py` as the platform-specific boundary.
+- On Linux and macOS, fail closed for group/world-readable secret files in production unless an explicit development override is set.
 - On Windows, inspect ACLs and flag broad principals such as `Everyone`, `Users`, `Authenticated Users`, and domain-wide groups.
 - Include parent directory checks, not just file checks.
 - Document the exact accepted Windows ACL shape.
@@ -155,29 +155,29 @@ This resolves the previous critical mismatch between the architecture and reposi
 - Store `forced_by`, `forced_at`, and reason fields if operator identity is available.
 - Add dry-run preview before force posting.
 
-### 7. SQLite Integrity And Concurrency Need Continued Integration Coverage
+### 7. SQLite Integrity And Concurrency Need Continued Operational Coverage
 
-**Evidence:** SQLite is the idempotency ledger and partial delivery record. TODO 5 implements repository-level claim/status transitions, partial delivery blocking, sanitized errors, retention cleanup, WAL mode, and Unix permission handling for the database and sidecars. Service-level wiring and reconciliation commands are still future steps.
+**Evidence:** SQLite is the idempotency ledger and partial delivery record. The implementation includes repository-level claim/status transitions, partial delivery blocking, sanitized errors, retention cleanup, WAL mode, Unix permission handling for the database and sidecars, service-level idempotency wiring, and reconciliation commands.
 
 **Risk:** Incorrect transaction boundaries, stale lock handling, clock skew, or SQLite write failures can cause duplicate posts, missed posts, or unrecoverable partial state.
 
 **Remaining recommendation:**
 
 - Keep service-level integration on the repository protocol rather than concrete SQLite types.
-- Store partial Discord message IDs immediately after each accepted send when publisher wiring is added.
+- Keep logging accepted Discord message IDs immediately if persistence fails after acceptance.
 - Treat database write failure after Discord acceptance as high-severity.
 - Add broader concurrency and crash-recovery tests once the digest service and publisher are wired.
 
-### 8. Dependency Supply Chain Controls Are Planned But Not Yet Enforced
+### 8. Dependency Supply Chain Controls Need Ongoing Maintenance
 
-**Evidence:** The architecture calls for `uv.lock`, update tooling, vulnerability scanning, and secret scanning, but `pyproject.toml` currently has no runtime dependencies and no CI is shown.
+**Evidence:** Runtime dependencies and `uv.lock` are committed. GitHub Actions runs Ruff, pytest, `pip-audit`, and Gitleaks.
 
 **Risk:** When dependencies are added, vulnerable or compromised packages could access tokens, event data, or host files.
 
 **Recommendation:**
 
-- Commit `uv.lock` as soon as dependencies are added.
-- Add CI that runs Ruff, pytest, secret scanning, and dependency vulnerability scanning.
+- Keep `uv.lock` reviewed with dependency changes.
+- Keep CI running Ruff, pytest, secret scanning, and dependency vulnerability scanning.
 - Review transitive dependency changes in PRs.
 - Pin major versions intentionally.
 - Avoid dynamic imports from user-controlled directories.
@@ -349,16 +349,13 @@ This resolves the previous critical mismatch between the architecture and reposi
 
 ## Recommended Security Backlog
 
-1. Implement cross-platform secret and state file permission checks.
-2. Implement the Discord content sanitizer and URL policy before any posting feature.
-3. Add centralized log and exception sanitization.
-4. Wire SQLite atomic claim, partial delivery, sanitization, and retention behavior into the digest service and operator commands.
-5. Add force/reconcile operator audit fields and confirmation flows.
-6. Add OAuth bootstrap scope and account verification.
-7. Add CI secret scanning and dependency vulnerability scanning.
-8. Commit `uv.lock` once dependencies are added.
-9. Add deployment documentation for Windows and Linux service accounts.
-10. Add future slash-command authorization design before implementing commands.
+1. Finish production startup policy for secret and state file permission findings, especially Windows ACL enforcement.
+2. Add force/reconcile operator audit metadata such as operator identity, reason, and timestamp.
+3. Add a scheduled or operator-triggered SQLite retention cleanup command.
+4. Keep CI secret scanning and dependency vulnerability scanning active as dependencies change.
+5. Maintain deployment documentation for Windows and Linux service accounts as operations evolve.
+6. Add future slash-command authorization design before implementing commands.
+7. Add broader crash-recovery and restore drills around partial delivery and SQLite reconciliation.
 
 ## Security Test Cases
 

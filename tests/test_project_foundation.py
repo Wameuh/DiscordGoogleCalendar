@@ -5,16 +5,20 @@ from __future__ import annotations
 import importlib.metadata
 from datetime import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from discordcalendarbot import __version__
 from discordcalendarbot.app import RuntimeApplication, build_application
-from discordcalendarbot.cli import main
+from discordcalendarbot.cli import build_parser, main
 from discordcalendarbot.config import (
     BotSettings,
     SettingsValidationError,
     validate_required_environment,
 )
+
+if TYPE_CHECKING:
+    from _pytest.monkeypatch import MonkeyPatch
 
 
 def test_package_version_matches_project_metadata() -> None:
@@ -23,9 +27,31 @@ def test_package_version_matches_project_metadata() -> None:
     assert importlib.metadata.version("discordcalendarbot") == "0.1.1"
 
 
-def test_default_cli_command_exits_successfully() -> None:
-    """The default CLI should be wired and return success."""
+def test_default_cli_command_uses_runtime_handler() -> None:
+    """The default CLI should be wired to the runtime handler."""
+    args = build_parser().parse_args([])
+
+    assert args.handler.__name__ == "handle_run"
+
+
+def test_default_cli_command_starts_runtime_application(monkeypatch: MonkeyPatch) -> None:
+    """The default CLI should load settings and run the long-lived application."""
+    loaded_settings = object()
+    calls: list[object] = []
+
+    class FakeRuntimeApplication:
+        async def run(self) -> None:
+            calls.append("run")
+
+    def fake_build_application(settings: object) -> FakeRuntimeApplication:
+        calls.append(settings)
+        return FakeRuntimeApplication()
+
+    monkeypatch.setattr("discordcalendarbot.cli.load_operator_settings", lambda: loaded_settings)
+    monkeypatch.setattr("discordcalendarbot.cli.build_application", fake_build_application)
+
     assert main([]) == 0
+    assert calls == [loaded_settings, "run"]
 
 
 def test_build_application_returns_runtime_when_settings_are_supplied(tmp_path: Path) -> None:

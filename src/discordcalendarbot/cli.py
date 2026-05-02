@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from typing import cast
 
 from discordcalendarbot import __version__
-from discordcalendarbot.app import build_application
+from discordcalendarbot.app import RuntimeApplication, build_application
 from discordcalendarbot.operator_commands import (
     load_operator_settings,
     parse_target_date,
@@ -54,8 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def handle_run(_args: argparse.Namespace) -> int:
-    """Handle the default command until runtime startup is fully exposed."""
-    build_application()
+    """Start the long-running Discord calendar bot."""
+    settings = load_operator_settings()
+    application = cast(RuntimeApplication, build_application(settings))
+    asyncio.run(application.run())
     return 0
 
 

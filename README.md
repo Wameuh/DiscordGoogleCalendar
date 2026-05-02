@@ -1,20 +1,22 @@
 # Discord Calendar Bot
 
-This repository contains the implementation scaffold for a Discord bot that will connect to one or more Google Calendars and post tagged daily event digests to a configured Discord channel.
+This repository contains a Discord bot that connects to one or more Google Calendars and posts tagged daily event digests to a configured Discord channel.
 
-The planned bot is designed to run as a long-lived Python process on both Windows and Linux. It uses outbound connections only for the first version: Discord Gateway/API plus Google Calendar API. No public inbound web server is required.
+The bot is designed to run as a long-lived Python process on both Windows and Linux. It uses outbound connections only for the first version: Discord Gateway/API plus Google Calendar API. No public inbound web server is required.
 
 ## Architecture
 
 The selected architecture is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-In short, the v0.1.1 target architecture is:
+In short, v0.1.1 provides:
 
 - The bot runs with `discord.py`.
 - An internal scheduler posts the daily digest at 7:00 AM in the configured timezone.
 - Google Calendar is accessed with OAuth read-only credentials for version 1.
 - SQLite stores digest run state so the bot can avoid duplicate posts.
 - Local operator commands support OAuth bootstrap, dry runs, and manual recovery.
+
+Detailed setup and operations guidance is in [docs/deployment.md](docs/deployment.md).
 
 ## Supported Platforms
 
@@ -54,7 +56,7 @@ uv run pytest
 
 ## Configuration
 
-The current implementation includes typed settings, Google Calendar read adapters, Discord formatting and publishing, SQLite idempotency, and the daily digest service/scheduler wiring. These environment variables are treated as required by the configuration layer:
+The implementation includes typed settings, Google Calendar read adapters, Discord formatting and publishing, SQLite idempotency, local operator commands, and the daily digest service/scheduler wiring. These environment variables are required:
 
 ```text
 DISCORD_BOT_TOKEN=
@@ -69,7 +71,11 @@ DAILY_DIGEST_TIME=07:00
 SQLITE_PATH=./data/discordcalendarbot.sqlite3
 ```
 
-Implemented validation currently covers required values, positive Discord IDs, timezone names, `HH:MM` time values, comma-separated calendar IDs and tag fields, role mention configuration, bounded timeout/message settings, resolved paths, and whether in-repository secret/state paths are ignored by git.
+The bot and local operator commands load a `.env` file from the current working directory with `python-dotenv` before reading environment variables. Deployment supervisors can also inject the same values directly through the process environment.
+
+Optional settings include `EVENT_TAG_FIELDS`, `POST_EMPTY_DIGEST`, `EMPTY_DIGEST_TEXT`, `ENABLE_ROLE_MENTION`, `DISCORD_ROLE_MENTION_ID`, `CATCH_UP_CUTOFF_TIME`, `GOOGLE_REQUEST_TIMEOUT_SECONDS`, `DISCORD_PUBLISH_TIMEOUT_SECONDS`, `MAX_DISCORD_MESSAGE_CHARS`, `SCHEDULER_MISFIRE_GRACE_SECONDS`, `RUN_LOCK_TTL_SECONDS`, and `LOG_LEVEL`.
+
+Validation covers required values, positive Discord IDs, timezone names, `HH:MM` time values, comma-separated calendar IDs and tag fields, role mention configuration, bounded timeout/message settings, resolved paths, and whether in-repository secret/state paths are ignored by git.
 
 ## Local Operator Commands
 
@@ -96,9 +102,21 @@ Before using real credentials:
 - Treat calendar event text as untrusted input before posting it to Discord.
 - Keep Discord mentions disabled by default.
 - Do not run dry runs with real calendar data in shared terminals or CI logs.
-- Commit and review `uv.lock` once dependencies are added.
+- Use encrypted backups for tokens, SQLite state, and logs. If encrypted backups are not available, exclude OAuth tokens and recreate them with `google-auth-login`.
+- After exposure, rotate the Discord bot token in the Discord developer portal, delete and recreate Google OAuth tokens with `google-auth-login`, and replace exposed OAuth client credentials from Google Cloud Console.
 
-See [CyberSecurityAnalysis.md](CyberSecurityAnalysis.md) for the architecture-level security review and [ARCHITECTURE.md](ARCHITECTURE.md) for the security controls folded into the design.
+See [docs/deployment.md](docs/deployment.md), [CyberSecurityAnalysis.md](CyberSecurityAnalysis.md), and [ARCHITECTURE.md](ARCHITECTURE.md) for operational and security guidance.
+
+## Continuous Integration
+
+CI runs Ruff linting, Ruff format checks, pytest, dependency vulnerability auditing, and secret scanning. The same local checks are:
+
+```powershell
+$env:UV_CACHE_DIR='.uv-cache'
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
+```
 
 ## License
 
