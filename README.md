@@ -66,6 +66,7 @@ GOOGLE_CREDENTIALS_PATH=
 GOOGLE_TOKEN_PATH=
 GOOGLE_CALENDAR_IDS=primary
 EVENT_TAG=#discord-daily
+EVENT_FILTER_MODE=tagged
 BOT_TIMEZONE=Europe/Kiev
 DAILY_DIGEST_TIME=07:00
 SQLITE_PATH=./data/discordcalendarbot.sqlite3
@@ -73,7 +74,9 @@ SQLITE_PATH=./data/discordcalendarbot.sqlite3
 
 The bot and local operator commands load a `.env` file from the current working directory with `python-dotenv` before reading environment variables. Deployment supervisors can also inject the same values directly through the process environment.
 
-Optional settings include `EVENT_TAG_FIELDS`, `POST_EMPTY_DIGEST`, `EMPTY_DIGEST_TEXT`, `ENABLE_ROLE_MENTION`, `DISCORD_ROLE_MENTION_ID`, `CATCH_UP_CUTOFF_TIME`, `GOOGLE_REQUEST_TIMEOUT_SECONDS`, `DISCORD_PUBLISH_TIMEOUT_SECONDS`, `MAX_DISCORD_MESSAGE_CHARS`, `SCHEDULER_MISFIRE_GRACE_SECONDS`, `RUN_LOCK_TTL_SECONDS`, and `LOG_LEVEL`.
+Optional settings include `EVENT_FILTER_MODE`, `EVENT_TAG_FIELDS`, `POST_EMPTY_DIGEST`, `EMPTY_DIGEST_TEXT`, `ENABLE_ROLE_MENTION`, `DISCORD_ROLE_MENTION_ID`, `CATCH_UP_CUTOFF_TIME`, `GOOGLE_REQUEST_TIMEOUT_SECONDS`, `DISCORD_PUBLISH_TIMEOUT_SECONDS`, `MAX_DISCORD_MESSAGE_CHARS`, `SCHEDULER_MISFIRE_GRACE_SECONDS`, `RUN_LOCK_TTL_SECONDS`, and `LOG_LEVEL`.
+
+`EVENT_FILTER_MODE` defaults to `tagged`, which keeps the original behavior and posts only events matching `EVENT_TAG`. Set `EVENT_FILTER_MODE=all` to include every event returned by `GOOGLE_CALENDAR_IDS` for the target day; in that mode `EVENT_TAG` may be omitted. The `all` mode can expose private calendar content to Discord, so use it only with calendars and channels whose audience is appropriate.
 
 Validation covers required values, positive Discord IDs, timezone names, `HH:MM` time values, comma-separated calendar IDs and tag fields, role mention configuration, bounded timeout/message settings, resolved paths, and whether in-repository secret/state paths are ignored by git.
 
@@ -98,6 +101,7 @@ The bot handles sensitive data: Discord bot tokens, Google OAuth credentials, Go
 Before using real credentials:
 
 - Keep `.env`, `credentials.json`, `token.json`, SQLite files, and local data directories out of git.
+- Keep OAuth metadata sidecars, local archives, downloaded binaries, cache folders, logs, and scan output artifacts out of git.
 - Restrict secret file permissions. On Linux, prefer `0600` for secret files and `0700` for secret directories. On Windows, make them readable only by the service account or current user.
 - Treat calendar event text as untrusted input before posting it to Discord.
 - Keep Discord mentions disabled by default.
@@ -117,6 +121,8 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 ```
+
+Before every commit, inspect `git status --short`, `git diff --cached --name-only`, and `git diff --cached` to verify that no `.env`, OAuth token, credential file, SQLite state, local archive, downloaded binary, cache, log, scan artifact, or private calendar/Discord data is staged.
 
 ## License
 

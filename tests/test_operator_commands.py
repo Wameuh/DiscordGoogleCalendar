@@ -15,7 +15,7 @@ from discordcalendarbot.calendar.auth import (
     run_oauth_login,
 )
 from discordcalendarbot.cli import build_parser
-from discordcalendarbot.config import BotSettings
+from discordcalendarbot.config import BotSettings, EventFilterMode
 from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher, DiscordCliPublishError
 from discordcalendarbot.discord.formatter import DiscordMessagePart
 from discordcalendarbot.operator_commands import (
@@ -124,6 +124,7 @@ def make_settings(tmp_path: Path) -> BotSettings:
         google_credentials_path=tmp_path / "credentials.json",
         google_token_path=tmp_path / "token.json",
         google_calendar_ids=("primary",),
+        event_filter_mode=EventFilterMode.TAGGED,
         event_tag="#discord-daily",
         bot_timezone_name="Europe/Kiev",
         bot_timezone=KYIV,

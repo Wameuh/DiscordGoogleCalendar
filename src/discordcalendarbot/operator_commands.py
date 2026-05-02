@@ -12,13 +12,13 @@ from typing import Protocol
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 
+from discordcalendarbot.app import build_digest_event_filter
 from discordcalendarbot.calendar.auth import (
     load_authorized_credentials,
     refresh_credentials_if_needed,
     run_oauth_login,
 )
 from discordcalendarbot.calendar.client import GoogleCalendarClient, build_calendar_service
-from discordcalendarbot.calendar.tag_filter import TagFilter
 from discordcalendarbot.config import BotSettings, load_settings
 from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher
 from discordcalendarbot.discord.formatter import DigestFormatter, DiscordMessagePart
@@ -333,7 +333,7 @@ async def build_operator_digest_service(
             sanitizer=DiscordContentSanitizer(),
             max_chars=settings.max_discord_message_chars,
         ),
-        tag_filter=TagFilter(settings.event_tag, settings.event_tag_fields),
+        tag_filter=build_digest_event_filter(settings),
     )
 
 

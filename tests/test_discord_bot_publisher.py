@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from discordcalendarbot.config import BotSettings
+from discordcalendarbot.config import BotSettings, EventFilterMode
 from discordcalendarbot.discord.bot import (
     CalendarDigestBot,
     DiscordRuntime,
@@ -222,6 +222,7 @@ def make_settings(
         google_credentials_path=tmp_path / "credentials.json",
         google_token_path=tmp_path / "token.json",
         google_calendar_ids=("calendar@example.com",),
+        event_filter_mode=EventFilterMode.TAGGED,
         event_tag="#discord-daily",
         bot_timezone_name="Europe/Kiev",
         bot_timezone=ZoneInfo("Europe/Kiev"),

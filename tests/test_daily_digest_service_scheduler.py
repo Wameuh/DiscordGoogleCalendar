@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from discordcalendarbot.calendar.tag_filter import TagFilter
-from discordcalendarbot.config import BotSettings
+from discordcalendarbot.app import build_digest_event_filter
+from discordcalendarbot.config import BotSettings, EventFilterMode
 from discordcalendarbot.discord.formatter import DigestFormatter, DiscordMessagePart
 from discordcalendarbot.discord.publisher import DiscordPublishError, DiscordPublishResult
 from discordcalendarbot.discord.sanitizer import DiscordContentSanitizer
@@ -183,7 +183,13 @@ class FailingPartialRepository(SQLiteDigestRunRepository):
         raise RuntimeError("sqlite unavailable")
 
 
-def make_settings(tmp_path: Path, *, post_empty_digest: bool = False) -> BotSettings:
+def make_settings(
+    tmp_path: Path,
+    *,
+    post_empty_digest: bool = False,
+    event_filter_mode: EventFilterMode = EventFilterMode.TAGGED,
+    event_tag: str | None = "#discord-daily",
+) -> BotSettings:
     """Build test settings without reading environment variables."""
     return BotSettings(
         discord_bot_token=f"token-{tmp_path.name}",
@@ -192,7 +198,8 @@ def make_settings(tmp_path: Path, *, post_empty_digest: bool = False) -> BotSett
         google_credentials_path=tmp_path / "credentials.json",
         google_token_path=tmp_path / "token.json",
         google_calendar_ids=("primary",),
-        event_tag="#discord-daily",
+        event_filter_mode=event_filter_mode,
+        event_tag=event_tag,
         bot_timezone_name="Europe/Kiev",
         bot_timezone=KYIV,
         daily_digest_time=time(hour=7),
@@ -240,7 +247,7 @@ def make_service(
             sanitizer=DiscordContentSanitizer(max_field_chars=200),
             max_chars=settings.max_discord_message_chars,
         ),
-        tag_filter=TagFilter(settings.event_tag, settings.event_tag_fields),
+        tag_filter=build_digest_event_filter(settings),
         clock=FixedClock(now),
         retry_policy=retry_policy or RetryPolicy(max_attempts=1, base_delay_seconds=0),
     )
@@ -316,6 +323,57 @@ async def test_no_tagged_events_marks_skipped_without_publish(tmp_path: Path) ->
     assert record is not None
     assert record.status == DigestRunStatus.SKIPPED_EMPTY
     assert publisher.calls == []
+
+
+@pytest.mark.asyncio
+async def test_all_filter_mode_posts_untagged_events_without_title_cleanup(tmp_path: Path) -> None:
+    """All-events mode should include untagged events and preserve their titles."""
+    settings = make_settings(
+        tmp_path,
+        event_filter_mode=EventFilterMode.ALL,
+        event_tag=None,
+    )
+    repository = await make_repository(tmp_path)
+    calendar_client = FakeCalendarClient({"primary": [make_raw_event("event-1", title="Planning")]})
+    publisher = FakePublisher()
+    now = datetime(2026, 5, 2, 7, 0, tzinfo=KYIV)
+    service = make_service(settings, repository, calendar_client, publisher, now=now)
+
+    result = await service.run_for_date(date(2026, 5, 2))
+
+    assert result.status == DigestServiceStatus.POSTED
+    assert result.event_count == 1
+    assert "Planning" in publisher.calls[0][0].content
+
+
+def test_filter_mode_is_part_of_digest_idempotency_key(tmp_path: Path) -> None:
+    """Digest keys should differ when the same tag is used with different filter modes."""
+    tagged_settings = make_settings(tmp_path, event_filter_mode=EventFilterMode.TAGGED)
+    all_settings = make_settings(tmp_path, event_filter_mode=EventFilterMode.ALL)
+
+    tagged_key = build_digest_run_key(tagged_settings, date(2026, 5, 2))
+    all_key = build_digest_run_key(all_settings, date(2026, 5, 2))
+
+    assert tagged_key.value != all_key.value
+
+
+def test_all_filter_mode_digest_key_ignores_unused_event_tag(tmp_path: Path) -> None:
+    """All-events digest keys should not change when the ignored tag value changes."""
+    first_settings = make_settings(
+        tmp_path,
+        event_filter_mode=EventFilterMode.ALL,
+        event_tag="#discord-daily",
+    )
+    second_settings = make_settings(
+        tmp_path,
+        event_filter_mode=EventFilterMode.ALL,
+        event_tag="#different-unused-tag",
+    )
+
+    first_key = build_digest_run_key(first_settings, date(2026, 5, 2))
+    second_key = build_digest_run_key(second_settings, date(2026, 5, 2))
+
+    assert first_key.value == second_key.value
 
 
 @pytest.mark.asyncio

@@ -260,6 +260,7 @@ GOOGLE_CREDENTIALS_PATH=
 GOOGLE_TOKEN_PATH=
 GOOGLE_CALENDAR_IDS=primary
 EVENT_TAG=#discord-daily
+EVENT_FILTER_MODE=tagged
 BOT_TIMEZONE=Europe/Kiev
 DAILY_DIGEST_TIME=07:00
 SQLITE_PATH=./data/discordcalendarbot.sqlite3
@@ -289,17 +290,25 @@ Files and directories to ignore:
 .env.*
 credentials.json
 token.json
+token.json.metadata.json
 *.sqlite3
 *.sqlite3-*
 data/
 .state/
+gitleaks-bin/
+gitleaks-*-bin/
+local-results.sarif
+*.zip
 ```
+
+Before every commit, staged files must be inspected to confirm that secrets, OAuth sidecars, SQLite state, local archives, downloaded binaries, caches, logs, scan outputs, and private calendar or Discord data are not included.
 
 Configuration validation must also enforce security constraints:
 
 - Reject invalid timezone names and invalid time formats.
 - Reject `MAX_DISCORD_MESSAGE_CHARS` above Discord's hard limit.
 - Validate timeout, retry, and lock TTL ranges.
+- Default `EVENT_FILTER_MODE` to `tagged`; allow `all` only as an explicit privacy-impacting operator choice.
 - Fail if role mentions are enabled without a valid configured role ID.
 - Resolve configured paths before opening files.
 - Reject secret paths inside the git working tree unless those paths are ignored.
@@ -457,12 +466,20 @@ Google Calendar does not provide a universal user-facing tag field, so v1 uses a
 
 Default behavior:
 
+- `EVENT_FILTER_MODE=tagged` includes only events that match `EVENT_TAG`.
 - `EVENT_TAG` is an exact token, for example `#discord-daily` or `[discord]`.
 - `EVENT_TAG_FIELDS` defaults to `summary,description`.
 - Matching is case-insensitive.
 - Matching is token-aware so `#discord` does not match `#discordant`.
 - Google descriptions are normalized before matching: strip HTML tags, decode entities, and collapse whitespace.
 - If the tag appears in the event summary, remove it from the displayed title.
+
+Alternative behavior:
+
+- `EVENT_FILTER_MODE=all` includes all normalized events returned from `GOOGLE_CALENDAR_IDS` for the target local day.
+- `EVENT_TAG` may be omitted in `all` mode.
+- Event titles are preserved unchanged except for normal Discord output sanitization.
+- This mode can expose private calendar content to Discord and should be used only with appropriate source calendars and channel audiences.
 
 Future tag strategies can be added behind the same `TagFilter` boundary:
 

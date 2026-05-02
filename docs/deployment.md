@@ -50,6 +50,7 @@ GOOGLE_CREDENTIALS_PATH=
 GOOGLE_TOKEN_PATH=
 GOOGLE_CALENDAR_IDS=primary
 EVENT_TAG=#discord-daily
+EVENT_FILTER_MODE=tagged
 BOT_TIMEZONE=Europe/Kiev
 DAILY_DIGEST_TIME=07:00
 SQLITE_PATH=./data/discordcalendarbot.sqlite3
@@ -73,6 +74,8 @@ LOG_LEVEL=INFO
 ```
 
 Keep `.env` out of git and readable only by the service account.
+
+`EVENT_FILTER_MODE` defaults to `tagged`, which posts only events containing `EVENT_TAG`. Set `EVENT_FILTER_MODE=all` to post every event from the configured calendars for the target day; in that mode `EVENT_TAG` may be omitted. This can copy private calendar details into Discord, so prefer a dedicated calendar or a tightly controlled Discord channel before enabling it.
 
 The CLI uses `python-dotenv` to load a `.env` file from the current working directory before settings validation. Production supervisors may also inject these values directly into the process environment instead of relying on a `.env` file.
 
@@ -151,7 +154,8 @@ Use systemd, Docker, or another supervisor. Keep host time synchronized with NTP
 
 ## Permissions And Secrets
 
-- Do not commit `.env`, `credentials.json`, `token.json`, SQLite files, logs, or local data directories.
+- Do not commit `.env`, `credentials.json`, `token.json`, OAuth metadata sidecars, SQLite files, logs, scan outputs, local archives, downloaded binaries, cache folders, or local data directories.
+- Before each commit, inspect `git status --short`, `git diff --cached --name-only`, and `git diff --cached` to verify that no secret, runtime artifact, or private calendar/Discord data is staged.
 - Do not paste Discord tokens, OAuth payloads, rendered digests, or dry-run output into CI logs or shared issue trackers.
 - Rotate the Discord bot token if it appears in logs, screenshots, shell history, or chat. Reset it in the Discord developer portal, update `DISCORD_BOT_TOKEN`, restart the service, and verify the bot reconnects only to the configured guild and channel.
 - Revoke the Google OAuth token and rerun `google-auth-login` if `token.json` is exposed. Delete the exposed token, revoke the app grant from the Google account security page, run `uv run python -m discordcalendarbot google-auth-login --force --confirm-write-token token.json`, restrict the new token file permissions, and restart the service.

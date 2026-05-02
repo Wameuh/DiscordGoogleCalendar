@@ -8,7 +8,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from discordcalendarbot.config import SettingsValidationError, is_path_relative_to, load_settings
+from discordcalendarbot.config import (
+    EventFilterMode,
+    SettingsValidationError,
+    is_path_relative_to,
+    load_settings,
+)
 from discordcalendarbot.domain.digest import build_local_day_window, event_overlaps_window
 from discordcalendarbot.domain.events import CalendarEvent, EventTime
 from discordcalendarbot.security.filesystem_permissions import (
@@ -56,6 +61,7 @@ def test_load_settings_accepts_valid_environment(tmp_path: Path) -> None:
     assert settings.discord_guild_id == EXPECTED_GUILD_ID
     assert settings.discord_channel_id == EXPECTED_CHANNEL_ID
     assert settings.google_calendar_ids == ("primary", "team@example.com")
+    assert settings.event_filter_mode == EventFilterMode.TAGGED
     assert settings.bot_timezone_name == "Europe/Kiev"
     assert settings.daily_digest_time.hour == EXPECTED_DIGEST_HOUR
     assert settings.max_discord_message_chars == EXPECTED_MESSAGE_LIMIT
@@ -68,6 +74,7 @@ def test_load_settings_accepts_valid_environment(tmp_path: Path) -> None:
         ("DAILY_DIGEST_TIME", "7am", "DAILY_DIGEST_TIME must use HH:MM format"),
         ("MAX_DISCORD_MESSAGE_CHARS", "2001", "MAX_DISCORD_MESSAGE_CHARS"),
         ("EVENT_TAG_FIELDS", "summary,attendees", "EVENT_TAG_FIELDS"),
+        ("EVENT_FILTER_MODE", "private", "EVENT_FILTER_MODE"),
     ],
 )
 def test_load_settings_rejects_invalid_values(
@@ -90,6 +97,28 @@ def test_load_settings_rejects_role_mentions_without_role_id(tmp_path: Path) -> 
     environment["ENABLE_ROLE_MENTION"] = "true"
 
     with pytest.raises(SettingsValidationError, match="DISCORD_ROLE_MENTION_ID"):
+        load_settings(environment, project_root=tmp_path, ignore_checker=ignored_path)
+
+
+def test_load_settings_all_filter_mode_allows_missing_event_tag(tmp_path: Path) -> None:
+    """All-events filter mode should not require the visible event tag."""
+    environment = valid_environment()
+    environment["EVENT_FILTER_MODE"] = "all"
+    environment.pop("EVENT_TAG")
+
+    settings = load_settings(environment, project_root=tmp_path, ignore_checker=ignored_path)
+
+    assert settings.event_filter_mode == EventFilterMode.ALL
+    assert settings.event_tag is None
+
+
+def test_load_settings_tagged_filter_mode_requires_event_tag(tmp_path: Path) -> None:
+    """Tagged filter mode should require an explicit visible event tag."""
+    environment = valid_environment()
+    environment["EVENT_FILTER_MODE"] = "tagged"
+    environment["EVENT_TAG"] = " "
+
+    with pytest.raises(SettingsValidationError, match="EVENT_TAG is required"):
         load_settings(environment, project_root=tmp_path, ignore_checker=ignored_path)
 
 

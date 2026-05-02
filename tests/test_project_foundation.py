@@ -13,6 +13,7 @@ from discordcalendarbot.app import RuntimeApplication, build_application
 from discordcalendarbot.cli import build_parser, main
 from discordcalendarbot.config import (
     BotSettings,
+    EventFilterMode,
     SettingsValidationError,
     validate_required_environment,
 )
@@ -63,6 +64,7 @@ def test_build_application_returns_runtime_when_settings_are_supplied(tmp_path: 
         google_credentials_path=tmp_path / "credentials.json",
         google_token_path=tmp_path / "token.json",
         google_calendar_ids=("primary",),
+        event_filter_mode=EventFilterMode.TAGGED,
         event_tag="#discord-daily",
         bot_timezone_name="Europe/Kiev",
         bot_timezone=ZoneInfo("Europe/Kiev"),

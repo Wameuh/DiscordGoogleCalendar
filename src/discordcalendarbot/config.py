@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import time
+from enum import Enum
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -18,7 +19,6 @@ REQUIRED_ENVIRONMENT_VARIABLES: tuple[str, ...] = (
     "GOOGLE_CREDENTIALS_PATH",
     "GOOGLE_TOKEN_PATH",
     "GOOGLE_CALENDAR_IDS",
-    "EVENT_TAG",
     "BOT_TIMEZONE",
     "DAILY_DIGEST_TIME",
     "SQLITE_PATH",
@@ -53,6 +53,13 @@ DISCORD_MAX_MESSAGE_CHARS = 2_000
 EXPECTED_TIME_PARTS = 2
 
 
+class EventFilterMode(str, Enum):
+    """Supported calendar event filtering modes."""
+
+    TAGGED = "tagged"
+    ALL = "all"
+
+
 @dataclass(frozen=True)
 class BotSettings:
     """Validated runtime settings for the Discord Calendar Bot."""
@@ -63,7 +70,8 @@ class BotSettings:
     google_credentials_path: Path
     google_token_path: Path
     google_calendar_ids: tuple[str, ...]
-    event_tag: str
+    event_filter_mode: EventFilterMode
+    event_tag: str | None
     bot_timezone_name: str
     bot_timezone: ZoneInfo
     daily_digest_time: time
@@ -95,6 +103,8 @@ def load_settings(
 
     timezone_name = environment["BOT_TIMEZONE"].strip()
     timezone = parse_timezone(timezone_name)
+    event_filter_mode = parse_event_filter_mode(environment.get("EVENT_FILTER_MODE", "tagged"))
+    event_tag = parse_event_tag(environment, event_filter_mode)
     role_enabled = parse_bool(environment.get("ENABLE_ROLE_MENTION", "false"))
     role_id = parse_optional_int(environment.get("DISCORD_ROLE_MENTION_ID"))
     if role_enabled and role_id is None:
@@ -122,7 +132,8 @@ def load_settings(
             setting_name="GOOGLE_TOKEN_PATH",
         ),
         google_calendar_ids=parse_csv(environment["GOOGLE_CALENDAR_IDS"], "GOOGLE_CALENDAR_IDS"),
-        event_tag=require_non_blank(environment, "EVENT_TAG"),
+        event_filter_mode=event_filter_mode,
+        event_tag=event_tag,
         bot_timezone_name=timezone_name,
         bot_timezone=timezone,
         daily_digest_time=parse_hhmm(environment["DAILY_DIGEST_TIME"], "DAILY_DIGEST_TIME"),
@@ -257,6 +268,27 @@ def parse_tag_fields(value: str) -> tuple[str, ...]:
     if invalid:
         raise SettingsValidationError(f"EVENT_TAG_FIELDS contains unsupported fields: {invalid}")
     return fields
+
+
+def parse_event_filter_mode(value: str) -> EventFilterMode:
+    """Parse and validate the calendar event filter mode."""
+    normalized = value.strip().lower()
+    try:
+        return EventFilterMode(normalized)
+    except ValueError as error:
+        supported = ", ".join(mode.value for mode in EventFilterMode)
+        raise SettingsValidationError(f"EVENT_FILTER_MODE must be one of: {supported}") from error
+
+
+def parse_event_tag(
+    environment: Mapping[str, str],
+    event_filter_mode: EventFilterMode,
+) -> str | None:
+    """Parse the event tag according to the selected filter mode."""
+    value = environment.get("EVENT_TAG", "").strip()
+    if event_filter_mode == EventFilterMode.TAGGED and not value:
+        raise SettingsValidationError("EVENT_TAG is required when EVENT_FILTER_MODE=tagged")
+    return value or None
 
 
 def parse_hhmm(value: str, setting_name: str) -> time:

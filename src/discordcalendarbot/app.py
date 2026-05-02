@@ -11,8 +11,8 @@ from discordcalendarbot.calendar.auth import (
     refresh_credentials_if_needed,
 )
 from discordcalendarbot.calendar.client import GoogleCalendarClient, build_calendar_service
-from discordcalendarbot.calendar.tag_filter import TagFilter
-from discordcalendarbot.config import BotSettings
+from discordcalendarbot.calendar.tag_filter import AllEventsFilter, TagFilter
+from discordcalendarbot.config import BotSettings, EventFilterMode
 from discordcalendarbot.discord.bot import DiscordRuntime, start_discord_bot
 from discordcalendarbot.discord.formatter import DigestFormatter
 from discordcalendarbot.discord.sanitizer import DiscordContentSanitizer
@@ -87,8 +87,17 @@ async def build_daily_digest_scheduler(
             sanitizer=DiscordContentSanitizer(),
             max_chars=settings.max_discord_message_chars,
         ),
-        tag_filter=TagFilter(settings.event_tag, settings.event_tag_fields),
+        tag_filter=build_digest_event_filter(settings),
         clock=clock,
         retry_policy=RetryPolicy(),
     )
     return DailyDigestScheduler(settings, service=service, clock=clock)
+
+
+def build_digest_event_filter(settings: BotSettings) -> AllEventsFilter | TagFilter:
+    """Build the configured digest event filter."""
+    if settings.event_filter_mode == EventFilterMode.ALL:
+        return AllEventsFilter()
+    if settings.event_tag is None:
+        raise ValueError("EVENT_TAG is required when EVENT_FILTER_MODE=tagged")
+    return TagFilter(settings.event_tag, settings.event_tag_fields)

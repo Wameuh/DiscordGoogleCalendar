@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 from discordcalendarbot.calendar.auth import GoogleAuthError
 from discordcalendarbot.calendar.mapper import GoogleEventMappingError, normalize_google_events
-from discordcalendarbot.config import BotSettings
+from discordcalendarbot.config import BotSettings, EventFilterMode
 from discordcalendarbot.discord.formatter import DiscordMessagePart
 from discordcalendarbot.discord.publisher import DiscordPublishError, DiscordPublishResult
 from discordcalendarbot.domain.digest import (
@@ -280,12 +280,12 @@ class DailyDigestService:
         """Execute a digest after the run has been claimed."""
         window = build_local_day_window(target_date, self._settings.bot_timezone)
         events = await self._fetch_events(window, retry_deadline=retry_deadline)
-        tagged_events = self._filter_tagged_events(events)
+        digest_events = self._filter_digest_events(events)
         digest = build_daily_digest(
             target_date=target_date,
             timezone_name=self._settings.bot_timezone_name,
             timezone=self._settings.bot_timezone,
-            events=tagged_events,
+            events=digest_events,
             post_empty_digest=self._settings.post_empty_digest,
             empty_digest_text=self._settings.empty_digest_text,
         )
@@ -310,7 +310,7 @@ class DailyDigestService:
                     status=DigestServiceStatus.PARTIAL_POSTED,
                     run_key=key.value,
                     target_date=target_date,
-                    event_count=len(tagged_events),
+                    event_count=len(digest_events),
                     message_ids=error.accepted_message_ids,
                     reason="partial_delivery",
                 )
@@ -321,7 +321,7 @@ class DailyDigestService:
             status=DigestServiceStatus.POSTED,
             run_key=key.value,
             target_date=target_date,
-            event_count=len(tagged_events),
+            event_count=len(digest_events),
             message_ids=publish_result.message_ids,
         )
 
@@ -353,8 +353,8 @@ class DailyDigestService:
             )
         return tuple(normalized)
 
-    def _filter_tagged_events(self, events: tuple[CalendarEvent, ...]) -> tuple[CalendarEvent, ...]:
-        """Filter tagged events and clean display titles."""
+    def _filter_digest_events(self, events: tuple[CalendarEvent, ...]) -> tuple[CalendarEvent, ...]:
+        """Filter digest events and clean display titles when needed."""
         return tuple(
             CalendarEvent(
                 calendar_id=event.calendar_id,
@@ -443,9 +443,16 @@ def build_digest_run_key(
         guild_id=str(settings.discord_guild_id),
         channel_id=str(settings.discord_channel_id),
         calendar_ids_hash=stable_config_hash(settings.google_calendar_ids),
-        event_tag_hash=stable_config_hash((settings.event_tag,)),
+        event_tag_hash=stable_filter_hash(settings),
         namespace=namespace,
     )
+
+
+def stable_filter_hash(settings: BotSettings) -> str:
+    """Return the idempotency hash for the configured filter policy."""
+    if settings.event_filter_mode == EventFilterMode.ALL:
+        return stable_config_hash((settings.event_filter_mode.value,))
+    return stable_config_hash((settings.event_filter_mode.value, settings.event_tag or ""))
 
 
 def stable_config_hash(values: Sequence[str]) -> str:

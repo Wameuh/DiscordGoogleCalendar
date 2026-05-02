@@ -47,6 +47,19 @@ class TagFilter:
         return re.compile(rf"(?<![\w-]){escaped}(?![\w-])", re.IGNORECASE)
 
 
+@dataclass(frozen=True)
+class AllEventsFilter:
+    """Filter that includes every normalized calendar event unchanged."""
+
+    def matches(self, _event: CalendarEvent) -> bool:
+        """Return true for every event."""
+        return True
+
+    def clean_title(self, title: str) -> str:
+        """Return the display title unchanged."""
+        return title
+
+
 def normalize_description(value: str) -> str:
     """Strip basic HTML, decode entities, and collapse whitespace."""
     without_tags = HTML_TAG_PATTERN.sub(" ", value)
