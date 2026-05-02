@@ -14,7 +14,6 @@ The design still keeps the core business logic independent from Discord so the c
 
 This architecture follows:
 
-- `AGENTS.md`
 - `.cursor/rules/python-best-practices.mdc`
 - `ressources/discord_bot_research.md`
 - `ressources/google_calendar_research.md`

@@ -1,4 +1,6 @@
 ressources
+AGENTS.md
+review_process/
 .pytest_cache/
 __pycache__/
 *.py[cod]
