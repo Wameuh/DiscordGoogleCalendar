@@ -25,6 +25,8 @@ class DailyDigest:
     target_date: date
     timezone_name: str
     events: tuple[CalendarEvent, ...]
+    should_post: bool = True
+    empty_message: str | None = None
 
 
 def build_local_day_window(target_date: date, timezone: ZoneInfo) -> LocalDayWindow:
@@ -48,3 +50,43 @@ def normalize_event_boundary(value: datetime | date, timezone: ZoneInfo | None) 
             return value.replace(tzinfo=timezone)
         return value.astimezone(timezone)
     return datetime.combine(value, time.min, tzinfo=timezone)
+
+
+def sort_events(events: tuple[CalendarEvent, ...], timezone: ZoneInfo) -> tuple[CalendarEvent, ...]:
+    """Sort events by all-day status, start time, and title."""
+    return tuple(
+        sorted(
+            events,
+            key=lambda event: (
+                not event.time.is_all_day,
+                normalize_event_boundary(event.time.start, timezone),
+                event.title.casefold(),
+            ),
+        )
+    )
+
+
+def build_daily_digest(
+    *,
+    target_date: date,
+    timezone_name: str,
+    timezone: ZoneInfo,
+    events: tuple[CalendarEvent, ...],
+    post_empty_digest: bool,
+    empty_digest_text: str,
+) -> DailyDigest:
+    """Build a sorted digest and apply empty-day policy."""
+    sorted_events = sort_events(events, timezone)
+    if sorted_events:
+        return DailyDigest(
+            target_date=target_date,
+            timezone_name=timezone_name,
+            events=sorted_events,
+        )
+    return DailyDigest(
+        target_date=target_date,
+        timezone_name=timezone_name,
+        events=(),
+        should_post=post_empty_digest,
+        empty_message=empty_digest_text if post_empty_digest else None,
+    )
