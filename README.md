@@ -94,6 +94,8 @@ uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message
 
 `google-auth-login` writes the token only when `--confirm-write-token` matches the configured token filename. Forced sends require both the target date confirmation and the configured Discord channel ID. Dry-run output can contain private calendar details unless `--redact` or `--summary-only` is used.
 
+`dry-run --summary-only` reports Google Calendar authentication, access, timeout, and mapping failures as command failures instead of showing `0 Discord message part(s)`. A zero-message summary means the calendar read and filtering completed successfully but produced no Discord output.
+
 ## Security Notes
 
 The bot handles sensitive data: Discord bot tokens, Google OAuth credentials, Google refresh tokens, private calendar event content, Discord channel metadata, logs, and SQLite state.

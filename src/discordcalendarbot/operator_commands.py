@@ -14,6 +14,7 @@ from google.auth.transport.requests import Request
 
 from discordcalendarbot.app import build_digest_event_filter
 from discordcalendarbot.calendar.auth import (
+    GoogleAuthError,
     load_authorized_credentials,
     refresh_credentials_if_needed,
     run_oauth_login,
@@ -27,13 +28,35 @@ from discordcalendarbot.discord.sanitizer import DiscordContentSanitizer
 from discordcalendarbot.services.digest_service import (
     DailyDigestResult,
     DailyDigestService,
+    DigestServiceStatus,
     build_digest_run_key,
+    status_code_for_error,
 )
 from discordcalendarbot.storage.repository import ClaimResult, DigestRunKey, DigestRunRepository
 from discordcalendarbot.storage.sqlite import SQLiteDigestRunRepository
 
 FORCE_NAMESPACE_PREFIX = "force"
 RECONCILE_LOCK_OWNER = "operator-reconcile"
+DRY_RUN_FAILURE_EXIT_CODE = 1
+HTTP_UNAUTHORIZED = 401
+HTTP_FORBIDDEN = 403
+HTTP_NOT_FOUND = 404
+HTTP_SERVER_ERROR_MIN = 500
+GOOGLE_AUTH_REJECTION_STATUSES = frozenset({HTTP_UNAUTHORIZED, HTTP_FORBIDDEN})
+DRY_RUN_GENERIC_FAILURE_MESSAGE = (
+    "Digest preview failed before rendering; check configuration and Google Calendar access."
+)
+DRY_RUN_FAILURE_MESSAGES = {
+    "google_auth": (
+        "Google Calendar authentication failed; verify GOOGLE_TOKEN_PATH, "
+        "refresh the OAuth token, and confirm the token has the read-only calendar scope."
+    ),
+    "google_event_mapping": (
+        "Google Calendar returned an event payload that could not be normalized safely."
+    ),
+    "timeout": "Google Calendar request timed out; check network connectivity and retry later.",
+    "network": "Google Calendar network request failed; check connectivity and retry later.",
+}
 
 
 class Output(Protocol):
@@ -64,8 +87,23 @@ class PreviewPublisher:
         return DiscordPublishResult(message_ids=())
 
 
+@dataclass(frozen=True)
+class DryRunPreview:
+    """Rendered dry-run output and service diagnostics."""
+
+    result: DailyDigestResult
+    message_parts: tuple[DiscordMessagePart, ...]
+    failure_error: object | None = None
+    failure_kind: str | None = None
+
+
 class DryRunRepository(DigestRunRepository):
     """No-op repository that lets dry-runs render without writing SQLite state."""
+
+    def __init__(self) -> None:
+        """Initialize captured dry-run failure diagnostics."""
+        self.failure_error: object | None = None
+        self.failure_kind: str | None = None
 
     async def initialize(self) -> None:
         """Dry-run storage does not need initialization."""
@@ -110,7 +148,9 @@ class DryRunRepository(DigestRunRepository):
         now: datetime,
     ) -> None:
         """Dry-runs never persist failures."""
-        _ = (run_key, retryable, error, error_kind, now)
+        _ = (run_key, retryable, now)
+        self.failure_error = error
+        self.failure_kind = error_kind
 
     async def record_partial_delivery(
         self,
@@ -184,16 +224,30 @@ async def run_dry_run_command(
     output: Output,
 ) -> OperatorCommandResult:
     """Render a digest preview without writing SQLite state or posting to Discord."""
-    message_parts = await render_dry_run(settings, target_date=target_date)
+    try:
+        preview = await render_dry_run(settings, target_date=target_date)
+    except Exception as error:
+        output.write(
+            f"Dry run failed for {target_date.isoformat()}: {format_dry_run_exception(error)}\n"
+        )
+        return OperatorCommandResult(DRY_RUN_FAILURE_EXIT_CODE, type(error).__name__)
+    if is_dry_run_failure(preview.result):
+        output.write(
+            f"Dry run failed for {target_date.isoformat()}: {format_dry_run_failure(preview)}\n"
+        )
+        return OperatorCommandResult(
+            DRY_RUN_FAILURE_EXIT_CODE,
+            preview.result.reason or "dry_run_failed",
+        )
     if summary_only:
         output.write(
             f"Dry run for {target_date.isoformat()}: "
-            f"{len(message_parts)} Discord message part(s).\n"
+            f"{len(preview.message_parts)} Discord message part(s).\n"
         )
         return OperatorCommandResult(0, "dry_run_summary")
-    for index, part in enumerate(message_parts, start=1):
+    for index, part in enumerate(preview.message_parts, start=1):
         content = redact_message(part.content) if redact else part.content
-        output.write(f"--- message {index}/{len(message_parts)} ---\n{content}\n")
+        output.write(f"--- message {index}/{len(preview.message_parts)} ---\n{content}\n")
     return OperatorCommandResult(0, "dry_run_complete")
 
 
@@ -221,7 +275,7 @@ async def run_send_digest_command(
         preview = await render_dry_run(settings, target_date=target_date)
         output.write(
             f"Force preview for {target_date.isoformat()}: "
-            f"{len(preview)} Discord message part(s).\n"
+            f"{len(preview.message_parts)} Discord message part(s).\n"
         )
     service = await build_operator_digest_service(settings)
     namespace = (
@@ -288,16 +342,26 @@ async def render_dry_run(
     settings: BotSettings,
     *,
     target_date: date,
-) -> tuple[DiscordMessagePart, ...]:
+) -> DryRunPreview:
     """Render the Discord messages that would be sent for a target date."""
     publisher = PreviewPublisher()
+    repository = DryRunRepository()
     service = await build_operator_digest_service(
         settings,
-        repository=DryRunRepository(),
+        repository=repository,
         publisher=publisher,
     )
-    await service.run_for_date(target_date, lock_owner="operator-dry-run", namespace="dry-run")
-    return publisher.message_parts
+    result = await service.run_for_date(
+        target_date,
+        lock_owner="operator-dry-run",
+        namespace="dry-run",
+    )
+    return DryRunPreview(
+        result=result,
+        message_parts=publisher.message_parts,
+        failure_error=repository.failure_error,
+        failure_kind=repository.failure_kind,
+    )
 
 
 async def build_calendar_client(settings: BotSettings) -> GoogleCalendarClient:
@@ -353,6 +417,56 @@ def redact_message(content: str) -> str:
         "- [redacted event]" if line.startswith("- ") else line for line in content.splitlines()
     ]
     return "\n".join(redacted_lines)
+
+
+def is_dry_run_failure(result: DailyDigestResult) -> bool:
+    """Return whether a dry-run result represents an operational failure."""
+    return result.status in {
+        DigestServiceStatus.FAILED_RETRYABLE,
+        DigestServiceStatus.FAILED_NON_RETRYABLE,
+    }
+
+
+def format_dry_run_failure(preview: DryRunPreview) -> str:
+    """Format a safe operator-facing dry-run failure message."""
+    kind = preview.failure_kind or preview.result.reason or "unknown"
+    status = status_code_for_error(preview.failure_error) if preview.failure_error else 0
+    return format_dry_run_problem(kind=kind, status=status)
+
+
+def format_dry_run_exception(error: Exception) -> str:
+    """Format a safe dry-run exception raised before service result creation."""
+    return format_dry_run_problem(
+        kind=dry_run_kind_for_exception(error),
+        status=status_code_for_error(error),
+    )
+
+
+def dry_run_kind_for_exception(error: Exception) -> str:
+    """Return the safe dry-run diagnostic kind for an exception."""
+    if isinstance(error, GoogleAuthError):
+        return "google_auth"
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if isinstance(error, ConnectionError):
+        return "network"
+    return "unknown"
+
+
+def format_dry_run_problem(*, kind: str, status: int) -> str:
+    """Format a safe dry-run problem from a diagnostic kind and HTTP status."""
+    if message := DRY_RUN_FAILURE_MESSAGES.get(kind):
+        return message
+    if status in GOOGLE_AUTH_REJECTION_STATUSES:
+        return (
+            "Google Calendar request was rejected; verify the API is enabled, "
+            "the OAuth token is valid, scopes are sufficient, and calendars are accessible."
+        )
+    if status == HTTP_NOT_FOUND:
+        return "Google Calendar was not found or is not accessible to the configured account."
+    if status >= HTTP_SERVER_ERROR_MIN:
+        return "Google Calendar service returned a transient server error; retry later."
+    return DRY_RUN_GENERIC_FAILURE_MESSAGE
 
 
 def format_send_result(result: DailyDigestResult) -> str:

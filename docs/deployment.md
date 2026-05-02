@@ -119,6 +119,8 @@ uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message
 
 Dry-run output can contain private calendar titles. Use `--redact` or `--summary-only` in shared terminals, tickets, CI logs, or screen recordings.
 
+If dry-run cannot read Google Calendar data, it exits non-zero and reports a safe operator message for authentication, access, timeout, network, or event-normalization failures. `Dry run for <date>: 0 Discord message part(s).` should mean the read path succeeded and no digest message would be produced.
+
 ## Windows Deployment
 
 Use a dedicated local or domain account that is not an administrator. Store secrets and state outside the source tree, for example:

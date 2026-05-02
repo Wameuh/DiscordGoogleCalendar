@@ -11,6 +11,7 @@ import pytest
 
 from discordcalendarbot.calendar.auth import (
     READONLY_CALENDAR_SCOPE,
+    GoogleAuthError,
     OAuthTokenMetadata,
     run_oauth_login,
 )
@@ -19,7 +20,9 @@ from discordcalendarbot.config import BotSettings, EventFilterMode
 from discordcalendarbot.discord.cli_publisher import DiscordCliPublisher, DiscordCliPublishError
 from discordcalendarbot.discord.formatter import DiscordMessagePart
 from discordcalendarbot.operator_commands import (
+    DRY_RUN_FAILURE_EXIT_CODE,
     FORCE_NAMESPACE_PREFIX,
+    DryRunPreview,
     daily_key_for_date,
     oauth_metadata_path,
     run_dry_run_command,
@@ -113,6 +116,28 @@ class FakeSendService:
             event_count=1,
             message_ids=("111",),
         )
+
+
+def make_dry_run_preview(
+    *,
+    status: DigestServiceStatus = DigestServiceStatus.POSTED,
+    message_parts: tuple[DiscordMessagePart, ...] = (),
+    failure_error: object | None = None,
+    failure_kind: str | None = None,
+) -> DryRunPreview:
+    """Build a dry-run preview for operator command tests."""
+    return DryRunPreview(
+        result=DailyDigestResult(
+            status=status,
+            run_key="dry-run",
+            target_date=date(2026, 5, 2),
+            event_count=1 if message_parts else 0,
+            reason=failure_kind,
+        ),
+        message_parts=message_parts,
+        failure_error=failure_error,
+        failure_kind=failure_kind,
+    )
 
 
 def make_settings(tmp_path: Path) -> BotSettings:
@@ -264,10 +289,12 @@ async def test_dry_run_can_redact_message_content(
         _settings: BotSettings,
         *,
         target_date: date,
-    ) -> tuple[DiscordMessagePart, ...]:
+    ) -> DryRunPreview:
         """Return fake rendered message parts."""
         assert target_date == date(2026, 5, 2)
-        return (DiscordMessagePart(content="Header\n- Private event"),)
+        return make_dry_run_preview(
+            message_parts=(DiscordMessagePart(content="Header\n- Private event"),)
+        )
 
     monkeypatch.setattr("discordcalendarbot.operator_commands.render_dry_run", fake_render)
 
@@ -297,10 +324,12 @@ async def test_dry_run_summary_only_prints_counts(
         _settings: BotSettings,
         *,
         target_date: date,
-    ) -> tuple[DiscordMessagePart, ...]:
+    ) -> DryRunPreview:
         """Return fake rendered message parts."""
         assert target_date == date(2026, 5, 2)
-        return (DiscordMessagePart(content="Header\n- Private event"),)
+        return make_dry_run_preview(
+            message_parts=(DiscordMessagePart(content="Header\n- Private event"),)
+        )
 
     monkeypatch.setattr("discordcalendarbot.operator_commands.render_dry_run", fake_render)
 
@@ -316,6 +345,101 @@ async def test_dry_run_summary_only_prints_counts(
     assert "1 Discord message part" in output.text
     assert "Private event" not in output.text
     assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_dry_run_summary_only_preserves_successful_empty_result(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Dry-run summary should keep zero message parts as success after a clean read."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fake_render(_settings: BotSettings, *, target_date: date) -> DryRunPreview:
+        """Return a successful empty dry-run result."""
+        assert target_date == date(2026, 5, 2)
+        return make_dry_run_preview(
+            status=DigestServiceStatus.SKIPPED_EMPTY,
+            message_parts=(),
+        )
+
+    monkeypatch.setattr("discordcalendarbot.operator_commands.render_dry_run", fake_render)
+
+    result = await run_dry_run_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        redact=False,
+        summary_only=True,
+        output=output,
+    )
+
+    assert result.exit_code == 0
+    assert "0 Discord message part" in output.text
+    assert "failed" not in output.text.lower()
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_dry_run_summary_only_reports_google_auth_failure(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Dry-run summary mode should report auth failures instead of zero messages."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fail_render(_settings: BotSettings, *, target_date: date) -> DryRunPreview:
+        """Raise before a service result exists, like credential loading can."""
+        assert target_date == date(2026, 5, 2)
+        raise GoogleAuthError("refresh_token=secret-value")
+
+    monkeypatch.setattr("discordcalendarbot.operator_commands.render_dry_run", fail_render)
+
+    result = await run_dry_run_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        redact=False,
+        summary_only=True,
+        output=output,
+    )
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert "Google Calendar authentication failed" in output.text
+    assert "0 Discord message part" not in output.text
+    assert "secret-value" not in output.text
+
+
+@pytest.mark.asyncio
+async def test_dry_run_summary_only_reports_service_google_failure(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Dry-run should report service failures captured by the dry-run repository."""
+    settings = make_settings(tmp_path)
+    output = Buffer()
+
+    async def fake_render(_settings: BotSettings, *, target_date: date) -> DryRunPreview:
+        """Return a failed service result with safe diagnostics."""
+        assert target_date == date(2026, 5, 2)
+        return make_dry_run_preview(
+            status=DigestServiceStatus.FAILED_NON_RETRYABLE,
+            failure_kind="google_event_mapping",
+        )
+
+    monkeypatch.setattr("discordcalendarbot.operator_commands.render_dry_run", fake_render)
+
+    result = await run_dry_run_command(
+        settings,
+        target_date=date(2026, 5, 2),
+        redact=False,
+        summary_only=True,
+        output=output,
+    )
+
+    assert result.exit_code == DRY_RUN_FAILURE_EXIT_CODE
+    assert "could not be normalized" in output.text
+    assert "0 Discord message part" not in output.text
 
 
 @pytest.mark.asyncio
@@ -406,10 +530,10 @@ async def test_send_digest_force_uses_separate_namespace(
         _settings: BotSettings,
         *,
         target_date: date,
-    ) -> tuple[DiscordMessagePart, ...]:
+    ) -> DryRunPreview:
         """Return fake preview content."""
         assert target_date == date(2026, 5, 2)
-        return (DiscordMessagePart(content="preview"),)
+        return make_dry_run_preview(message_parts=(DiscordMessagePart(content="preview"),))
 
     monkeypatch.setattr(
         "discordcalendarbot.operator_commands.build_operator_digest_service",
