@@ -1,0 +1,1 @@
+"""Discord URL policy placeholder."""

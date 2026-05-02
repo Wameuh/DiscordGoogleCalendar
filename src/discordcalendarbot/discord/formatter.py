@@ -1,0 +1,1 @@
+"""Discord digest formatter placeholder."""

@@ -1,0 +1,1 @@
+"""Filesystem permission checks placeholder."""

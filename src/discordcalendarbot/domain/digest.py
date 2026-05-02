@@ -1,0 +1,1 @@
+"""Digest domain rules placeholder."""

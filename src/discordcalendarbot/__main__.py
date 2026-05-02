@@ -1,4 +1,4 @@
-"""Compatibility entry point for local development."""
+"""Module entry point for `python -m discordcalendarbot`."""
 
 from discordcalendarbot.cli import main
 
