@@ -175,7 +175,7 @@ Before using real credentials:
 - Use encrypted backups for tokens, SQLite state, and logs. If encrypted backups are not available, exclude OAuth tokens and recreate them with `google-auth-login`.
 - After exposure, rotate the Discord bot token in the Discord developer portal, delete and recreate Google OAuth tokens with `google-auth-login`, and replace exposed OAuth client credentials from Google Cloud Console.
 
-See [docs/deployment.md](docs/deployment.md), [CyberSecurityAnalysis.md](CyberSecurityAnalysis.md), and [ARCHITECTURE.md](ARCHITECTURE.md) for operational and security guidance.
+See [docs/deployment.md](docs/deployment.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for operational and security guidance.
 
 ## Continuous Integration
 

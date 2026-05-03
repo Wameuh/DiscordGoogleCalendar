@@ -17,7 +17,6 @@ This architecture follows:
 - `.cursor/rules/python-best-practices.mdc`
 - `ressources/discord_bot_research.md`
 - `ressources/google_calendar_research.md`
-- `CyberSecurityAnalysis.md`
 
 No FastAPI component is required for the first version. The bot only needs outbound access to Discord and Google Calendar.
 

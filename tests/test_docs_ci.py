@@ -9,6 +9,7 @@ def test_ci_workflow_runs_required_quality_gates() -> None:
     """CI should run the same local checks plus supply-chain scans."""
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 
+    assert "fetch-depth: 0" in workflow
     assert "uv run ruff check ." in workflow
     assert "uv run ruff format --check ." in workflow
     assert "uv run pytest" in workflow
