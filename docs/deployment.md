@@ -4,7 +4,7 @@ This guide covers v0.1.1 of Discord Calendar Bot. The bot is a long-running outb
 
 ## Setup Overview
 
-1. Install Python 3.12 and `uv`.
+1. Install `uv`, then use `uv` to install Python 3.12 and project dependencies.
 2. Create a Discord bot with only the permissions needed for the target channel.
 3. Create Google OAuth credentials for an installed application.
 4. Put `.env`, Google credentials, OAuth token, SQLite state, and logs in a private directory.
@@ -13,7 +13,15 @@ This guide covers v0.1.1 of Discord Calendar Bot. The bot is a long-running outb
 
 The first version intentionally has no FastAPI app, inbound web server, Discord privileged message-content intent, Google write scope, or multi-guild configuration.
 
-Python 3.12 is the supported runtime. The repository pins the runtime in `.python-version`, and CI reads that file when setting up Python.
+Python 3.12 is the supported runtime. The repository pins the runtime in `.python-version`, and CI reads that file when setting up Python. On Linux servers, prefer the `uv` installer and `uv python install` instead of installing Python through the system package manager:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv python install 3.12
+uv sync --locked
+```
+
+The project includes Python timezone data as a dependency, so `uv sync --locked` installs what `ZoneInfo` needs to resolve `BOT_TIMEZONE`.
 
 ## Discord Setup
 
@@ -53,7 +61,7 @@ GOOGLE_TOKEN_PATH=
 GOOGLE_CALENDAR_IDS=primary
 EVENT_TAG=#discord-daily
 EVENT_FILTER_MODE=tagged
-BOT_TIMEZONE=Europe/Kiev
+BOT_TIMEZONE=Europe/Kyiv
 DAILY_DIGEST_TIME=07:00
 SQLITE_PATH=./data/discordcalendarbot.sqlite3
 ```
@@ -85,11 +93,47 @@ The CLI uses `python-dotenv` to load a `.env` file from the current working dire
 
 From the project directory:
 
-```powershell
+```bash
 uv run python -m discordcalendarbot
 ```
 
-The scheduler starts only after Discord readiness and target validation. Startup catch-up runs only after the digest time and before `CATCH_UP_CUTOFF_TIME`; after the cutoff, use an operator command.
+This foreground command is useful for manual validation, but production should use a supervisor so the bot survives SSH disconnects, reboots, and transient failures. The scheduler starts only after Discord readiness and target validation. Startup catch-up runs only after the digest time and before `CATCH_UP_CUTOFF_TIME`; after the cutoff, use an operator command.
+
+For Linux servers using systemd, create `/etc/systemd/system/discordcalendarbot.service` and adjust `User`, `WorkingDirectory`, and the absolute path to `uv`:
+
+```ini
+[Unit]
+Description=Discord Calendar Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=discordcalendarbot
+WorkingDirectory=/opt/discordcalendarbot
+ExecStart=/usr/local/bin/uv run python -m discordcalendarbot
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and inspect it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now discordcalendarbot
+sudo systemctl status discordcalendarbot
+journalctl -u discordcalendarbot -f
+```
+
+The app loads `.env` from `WorkingDirectory`. Keep secrets and SQLite paths readable by the service user. If `BOT_TIMEZONE` cannot be resolved, run `uv sync --locked` again to make sure the Python `tzdata` dependency is installed.
+
+```bash
+uv sync --locked
+```
 
 ## Operator Commands
 

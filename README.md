@@ -44,7 +44,15 @@ Install uv from the official documentation:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-On Linux, install `uv` from the same official documentation and run project commands with `uv run`.
+On Linux, install `uv` from the same official documentation, then let `uv` install and use Python 3.12:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv python install 3.12
+uv sync --locked
+```
+
+The project includes Python timezone data as a dependency, so deployment does not require installing OS timezone packages just to resolve `BOT_TIMEZONE`.
 
 Current foundation checks:
 
@@ -68,7 +76,7 @@ GOOGLE_TOKEN_PATH=
 GOOGLE_CALENDAR_IDS=primary
 EVENT_TAG=#discord-daily
 EVENT_FILTER_MODE=tagged
-BOT_TIMEZONE=Europe/Kiev
+BOT_TIMEZONE=Europe/Kyiv
 DAILY_DIGEST_TIME=07:00
 SQLITE_PATH=./data/discordcalendarbot.sqlite3
 ```
@@ -80,6 +88,52 @@ Optional settings include `EVENT_FILTER_MODE`, `EVENT_TAG_FIELDS`, `POST_EMPTY_D
 `EVENT_FILTER_MODE` defaults to `tagged`, which keeps the original behavior and posts only events matching `EVENT_TAG`. Set `EVENT_FILTER_MODE=all` to include every event returned by `GOOGLE_CALENDAR_IDS` for the target day; in that mode `EVENT_TAG` may be omitted. The `all` mode can expose private calendar content to Discord, so use it only with calendars and channels whose audience is appropriate.
 
 Validation covers required values, positive Discord IDs, timezone names, `HH:MM` time values, comma-separated calendar IDs and tag fields, role mention configuration, bounded timeout/message settings, resolved paths, and whether in-repository secret/state paths are ignored by git.
+
+## Running The Bot
+
+For a one-off foreground run from the project directory:
+
+```bash
+uv run python -m discordcalendarbot
+```
+
+That command starts the long-running Discord bot. Keep it attached only for manual checks; if the SSH session or terminal exits, the process exits too.
+
+On Linux servers, run it under `systemd` so it starts on boot and restarts after failures. Create `/etc/systemd/system/discordcalendarbot.service` and adjust the user, paths, and `uv` location for the server:
+
+```ini
+[Unit]
+Description=Discord Calendar Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=discordcalendarbot
+WorkingDirectory=/opt/discordcalendarbot
+ExecStart=/usr/local/bin/uv run python -m discordcalendarbot
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and inspect the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now discordcalendarbot
+sudo systemctl status discordcalendarbot
+journalctl -u discordcalendarbot -f
+```
+
+The bot loads `.env` from `WorkingDirectory`, so keep `.env`, `credentials.json`, `token.json`, and SQLite paths readable by the service user. If `BOT_TIMEZONE` cannot be resolved, run `uv sync --locked` again to make sure the Python `tzdata` dependency is installed.
+
+```bash
+uv sync --locked
+```
 
 ## Local Operator Commands
 
