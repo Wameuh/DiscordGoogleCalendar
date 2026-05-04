@@ -31,6 +31,10 @@ def test_deployment_guide_documents_required_operations_topics() -> None:
         "rotate the discord bot token",
         "revoke the google oauth token",
         "encrypted backups",
+        "log_file_path",
+        "log_backup_count=2",
+        "one active log file plus two rotated backups",
+        "journalctl",
         "retention",
         "privacy",
         "ci",
@@ -48,3 +52,5 @@ def test_readme_links_deployment_and_ci_guidance() -> None:
     assert "continuous integration" in readme
     assert "encrypted backups" in readme
     assert "empty_digest_text" in readme
+    assert "log_file_path" in readme
+    assert "one active file plus two rotated backups" in readme

@@ -81,6 +81,9 @@ MAX_DISCORD_MESSAGE_CHARS=1900
 SCHEDULER_MISFIRE_GRACE_SECONDS=900
 RUN_LOCK_TTL_SECONDS=900
 LOG_LEVEL=INFO
+LOG_FILE_PATH=
+LOG_MAX_BYTES=1048576
+LOG_BACKUP_COUNT=2
 ```
 
 Keep `.env` out of git and readable only by the service account.
@@ -88,6 +91,31 @@ Keep `.env` out of git and readable only by the service account.
 `EVENT_FILTER_MODE` defaults to `tagged`, which posts only events containing `EVENT_TAG`. Set `EVENT_FILTER_MODE=all` to post every event from the configured calendars for the target day; in that mode `EVENT_TAG` may be omitted. This can copy private calendar details into Discord, so prefer a dedicated calendar or a tightly controlled Discord channel before enabling it.
 
 The CLI uses `python-dotenv` to load a `.env` file from the current working directory before settings validation. Production supervisors may also inject these values directly into the process environment instead of relying on a `.env` file.
+
+## Logging
+
+The bot always writes console logs. Foreground runs show those logs in the terminal, and the Linux `systemd` example captures the same stream in the journal. Inspect journal logs without printing environment files or secret files:
+
+```bash
+sudo journalctl -u discordcalendarbot -n 100 --no-pager
+sudo journalctl -u discordcalendarbot -f
+```
+
+Set `LOG_FILE_PATH` to enable local rotating file logs. Recommended paths are:
+
+```text
+/var/log/discordcalendarbot/bot.log
+C:\DiscordCalendarBot\logs\bot.log
+```
+
+The default rotation policy is:
+
+```text
+LOG_MAX_BYTES=1048576
+LOG_BACKUP_COUNT=2
+```
+
+This keeps one active log file plus two rotated backups, for three files total. The application creates the log directory when needed and restricts Unix-like permissions where practical. Logs are sanitized for common token, OAuth, URL query, and secret-path leaks, but they remain operational records and must be protected. Include logs in backups only when the backups are encrypted and access-controlled.
 
 ## Running The Bot
 

@@ -49,6 +49,7 @@ def validate_required_environment(environment: Mapping[str, str]) -> None:
 GitIgnoreChecker = Callable[[Path], bool]
 
 VALID_TAG_FIELDS: frozenset[str] = frozenset({"summary", "description", "location"})
+VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 DISCORD_MAX_MESSAGE_CHARS = 2_000
 EXPECTED_TIME_PARTS = 2
 
@@ -88,6 +89,9 @@ class BotSettings:
     scheduler_misfire_grace_seconds: int = 900
     run_lock_ttl_seconds: int = 900
     log_level: str = "INFO"
+    log_file_path: Path | None = None
+    log_max_bytes: int = 1_048_576
+    log_backup_count: int = 2
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,10 @@ class DiscordCheckSettings:
     discord_publish_timeout_seconds: int = 20
     enable_role_mention: bool = False
     discord_role_mention_id: int | None = None
+    log_level: str = "INFO"
+    log_file_path: Path | None = None
+    log_max_bytes: int = 1_048_576
+    log_backup_count: int = 2
 
 
 def load_settings(
@@ -196,12 +204,37 @@ def load_settings(
             minimum=60,
             maximum=86_400,
         ),
-        log_level=environment.get("LOG_LEVEL", "INFO").strip().upper(),
+        log_level=parse_log_level(environment.get("LOG_LEVEL", "INFO")),
+        log_file_path=parse_optional_configured_path(
+            environment.get("LOG_FILE_PATH"),
+            project_root=root,
+            ignore_checker=checker,
+            setting_name="LOG_FILE_PATH",
+        ),
+        log_max_bytes=parse_int_in_range(
+            environment.get("LOG_MAX_BYTES", "1048576"),
+            "LOG_MAX_BYTES",
+            minimum=1,
+            maximum=1_073_741_824,
+        ),
+        log_backup_count=parse_int_in_range(
+            environment.get("LOG_BACKUP_COUNT", "2"),
+            "LOG_BACKUP_COUNT",
+            minimum=0,
+            maximum=100,
+        ),
     )
 
 
-def load_discord_check_settings(environment: Mapping[str, str]) -> DiscordCheckSettings:
+def load_discord_check_settings(
+    environment: Mapping[str, str],
+    *,
+    project_root: Path | None = None,
+    ignore_checker: GitIgnoreChecker | None = None,
+) -> DiscordCheckSettings:
     """Load and validate only the Discord settings needed for target checks."""
+    root = (project_root or Path.cwd()).resolve()
+    checker = ignore_checker or GitIgnoreCheckerForRoot(root)
     missing = tuple(
         variable
         for variable in ("DISCORD_BOT_TOKEN", "DISCORD_GUILD_ID", "DISCORD_CHANNEL_ID")
@@ -231,6 +264,25 @@ def load_discord_check_settings(environment: Mapping[str, str]) -> DiscordCheckS
         ),
         enable_role_mention=role_enabled,
         discord_role_mention_id=role_id,
+        log_level=parse_log_level(environment.get("LOG_LEVEL", "INFO")),
+        log_file_path=parse_optional_configured_path(
+            environment.get("LOG_FILE_PATH"),
+            project_root=root,
+            ignore_checker=checker,
+            setting_name="LOG_FILE_PATH",
+        ),
+        log_max_bytes=parse_int_in_range(
+            environment.get("LOG_MAX_BYTES", "1048576"),
+            "LOG_MAX_BYTES",
+            minimum=1,
+            maximum=1_073_741_824,
+        ),
+        log_backup_count=parse_int_in_range(
+            environment.get("LOG_BACKUP_COUNT", "2"),
+            "LOG_BACKUP_COUNT",
+            minimum=0,
+            maximum=100,
+        ),
     )
 
 
@@ -316,6 +368,15 @@ def parse_tag_fields(value: str) -> tuple[str, ...]:
     return fields
 
 
+def parse_log_level(value: str) -> str:
+    """Parse and validate the configured Python log level."""
+    normalized = value.strip().upper()
+    if normalized not in VALID_LOG_LEVELS:
+        supported = ", ".join(sorted(VALID_LOG_LEVELS))
+        raise SettingsValidationError(f"LOG_LEVEL must be one of: {supported}")
+    return normalized
+
+
 def parse_event_filter_mode(value: str) -> EventFilterMode:
     """Parse and validate the calendar event filter mode."""
     normalized = value.strip().lower()
@@ -375,6 +436,24 @@ def resolve_configured_path(
             f"{setting_name} points inside the project tree but is not ignored by git: {resolved}"
         )
     return resolved
+
+
+def parse_optional_configured_path(
+    value: str | None,
+    *,
+    project_root: Path,
+    ignore_checker: GitIgnoreChecker,
+    setting_name: str,
+) -> Path | None:
+    """Resolve and validate an optional filesystem path setting."""
+    if value is None or not value.strip():
+        return None
+    return resolve_configured_path(
+        value,
+        project_root=project_root,
+        ignore_checker=ignore_checker,
+        setting_name=setting_name,
+    )
 
 
 def is_path_relative_to(path: Path, parent: Path, *, case_sensitive: bool | None = None) -> bool:

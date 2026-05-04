@@ -9,6 +9,7 @@ from typing import cast
 
 from discordcalendarbot import __version__
 from discordcalendarbot.app import RuntimeApplication, build_application
+from discordcalendarbot.logging_config import configure_logging
 from discordcalendarbot.operator_commands import (
     load_discord_operator_settings,
     load_operator_settings,
@@ -72,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
 def handle_run(_args: argparse.Namespace) -> int:
     """Start the long-running Discord calendar bot."""
     settings = load_operator_settings()
+    configure_logging(settings)
     application = cast(RuntimeApplication, build_application(settings))
     asyncio.run(application.run())
     return 0
@@ -80,6 +82,7 @@ def handle_run(_args: argparse.Namespace) -> int:
 def handle_google_auth_login(args: argparse.Namespace) -> int:
     """Handle the OAuth bootstrap command."""
     settings = load_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_google_auth_login_command(
             settings,
@@ -96,6 +99,7 @@ def handle_google_auth_login(args: argparse.Namespace) -> int:
 def handle_dry_run(args: argparse.Namespace) -> int:
     """Handle dry-run preview rendering."""
     settings = load_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_dry_run_command(
             settings,
@@ -111,6 +115,7 @@ def handle_dry_run(args: argparse.Namespace) -> int:
 def handle_check_google_calendar(args: argparse.Namespace) -> int:
     """Handle Google Calendar read-path checks."""
     settings = load_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_check_google_calendar_command(
             settings,
@@ -124,6 +129,7 @@ def handle_check_google_calendar(args: argparse.Namespace) -> int:
 def handle_check_discord(_args: argparse.Namespace) -> int:
     """Handle Discord connectivity checks."""
     settings = load_discord_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_check_discord_command(
             settings,
@@ -136,6 +142,7 @@ def handle_check_discord(_args: argparse.Namespace) -> int:
 def handle_check_full_digest(args: argparse.Namespace) -> int:
     """Handle full no-publish digest checks."""
     settings = load_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_check_full_digest_command(
             settings,
@@ -149,6 +156,7 @@ def handle_check_full_digest(args: argparse.Namespace) -> int:
 def handle_send_digest(args: argparse.Namespace) -> int:
     """Handle local digest sending."""
     settings = load_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_send_digest_command(
             settings,
@@ -167,6 +175,7 @@ def handle_send_digest(args: argparse.Namespace) -> int:
 def handle_reconcile_digest(args: argparse.Namespace) -> int:
     """Handle digest reconciliation."""
     settings = load_operator_settings()
+    configure_logging(settings)
     result = asyncio.run(
         run_reconcile_digest_command(
             settings,

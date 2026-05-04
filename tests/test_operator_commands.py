@@ -724,6 +724,7 @@ def test_check_discord_handler_uses_discord_only_settings(monkeypatch: MonkeyPat
     monkeypatch.setattr(
         "discordcalendarbot.cli.load_discord_operator_settings", load_discord_settings
     )
+    monkeypatch.setattr("discordcalendarbot.cli.configure_logging", lambda _settings: None)
     monkeypatch.setattr(
         "discordcalendarbot.cli.run_check_discord_command",
         fake_run_check_discord_command,

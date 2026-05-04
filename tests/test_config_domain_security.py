@@ -28,6 +28,10 @@ EXPECTED_GUILD_ID = 123
 EXPECTED_CHANNEL_ID = 456
 EXPECTED_DIGEST_HOUR = 7
 EXPECTED_MESSAGE_LIMIT = 1_900
+EXPECTED_LOG_MAX_BYTES = 1_048_576
+EXPECTED_LOG_BACKUP_COUNT = 2
+CUSTOM_LOG_MAX_BYTES = 2_048
+CUSTOM_LOG_BACKUP_COUNT = 4
 
 
 def valid_environment() -> dict[str, str]:
@@ -66,6 +70,26 @@ def test_load_settings_accepts_valid_environment(tmp_path: Path) -> None:
     assert settings.bot_timezone_name == "Europe/Kiev"
     assert settings.daily_digest_time.hour == EXPECTED_DIGEST_HOUR
     assert settings.max_discord_message_chars == EXPECTED_MESSAGE_LIMIT
+    assert settings.log_level == "INFO"
+    assert settings.log_file_path is None
+    assert settings.log_max_bytes == EXPECTED_LOG_MAX_BYTES
+    assert settings.log_backup_count == EXPECTED_LOG_BACKUP_COUNT
+
+
+def test_load_settings_accepts_file_logging_configuration(tmp_path: Path) -> None:
+    """Settings should parse optional rotating file logging configuration."""
+    environment = valid_environment()
+    environment["LOG_FILE_PATH"] = "logs/bot.log"
+    environment["LOG_LEVEL"] = "debug"
+    environment["LOG_MAX_BYTES"] = str(CUSTOM_LOG_MAX_BYTES)
+    environment["LOG_BACKUP_COUNT"] = str(CUSTOM_LOG_BACKUP_COUNT)
+
+    settings = load_settings(environment, project_root=tmp_path, ignore_checker=ignored_path)
+
+    assert settings.log_file_path == tmp_path / "logs" / "bot.log"
+    assert settings.log_level == "DEBUG"
+    assert settings.log_max_bytes == CUSTOM_LOG_MAX_BYTES
+    assert settings.log_backup_count == CUSTOM_LOG_BACKUP_COUNT
 
 
 @pytest.mark.parametrize(
@@ -76,6 +100,9 @@ def test_load_settings_accepts_valid_environment(tmp_path: Path) -> None:
         ("MAX_DISCORD_MESSAGE_CHARS", "2001", "MAX_DISCORD_MESSAGE_CHARS"),
         ("EVENT_TAG_FIELDS", "summary,attendees", "EVENT_TAG_FIELDS"),
         ("EVENT_FILTER_MODE", "private", "EVENT_FILTER_MODE"),
+        ("LOG_LEVEL", "VERBOSE", "LOG_LEVEL"),
+        ("LOG_MAX_BYTES", "0", "LOG_MAX_BYTES"),
+        ("LOG_BACKUP_COUNT", "-1", "LOG_BACKUP_COUNT"),
     ],
 )
 def test_load_settings_rejects_invalid_values(
@@ -133,6 +160,19 @@ def test_load_settings_rejects_unignored_secret_paths_inside_project(tmp_path: P
         )
 
 
+def test_load_settings_rejects_unignored_log_path_inside_project(tmp_path: Path) -> None:
+    """Log files inside the project must be ignored by git."""
+    environment = valid_environment()
+    environment["LOG_FILE_PATH"] = "logs/bot.log"
+
+    with pytest.raises(SettingsValidationError, match="LOG_FILE_PATH"):
+        load_settings(
+            environment,
+            project_root=tmp_path,
+            ignore_checker=lambda path: path.name != "bot.log",
+        )
+
+
 def test_load_discord_check_settings_does_not_require_google_values() -> None:
     """Discord-only checks should not require Google or SQLite settings."""
     settings = load_discord_check_settings(
@@ -145,6 +185,8 @@ def test_load_discord_check_settings_does_not_require_google_values() -> None:
 
     assert settings.discord_guild_id == EXPECTED_GUILD_ID
     assert settings.discord_channel_id == EXPECTED_CHANNEL_ID
+    assert settings.log_level == "INFO"
+    assert settings.log_file_path is None
 
 
 def test_path_containment_can_compare_windows_paths_case_insensitively(tmp_path: Path) -> None:

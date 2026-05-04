@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import importlib.metadata
+from collections.abc import Coroutine
 from datetime import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
-from discordcalendarbot import __version__
+import pytest
+
+from discordcalendarbot import __version__, cli
 from discordcalendarbot.app import RuntimeApplication, build_application
 from discordcalendarbot.cli import build_parser, main
 from discordcalendarbot.config import (
@@ -49,10 +53,68 @@ def test_default_cli_command_starts_runtime_application(monkeypatch: MonkeyPatch
         return FakeRuntimeApplication()
 
     monkeypatch.setattr("discordcalendarbot.cli.load_operator_settings", lambda: loaded_settings)
+    monkeypatch.setattr("discordcalendarbot.cli.configure_logging", lambda _settings: None)
     monkeypatch.setattr("discordcalendarbot.cli.build_application", fake_build_application)
 
     assert main([]) == 0
     assert calls == [loaded_settings, "run"]
+
+
+@pytest.mark.parametrize(
+    ("handler_name", "args", "uses_discord_only_settings"),
+    [
+        ("handle_google_auth_login", SimpleNamespace(force=False, confirm_write_token=None), False),
+        (
+            "handle_dry_run",
+            SimpleNamespace(date="2026-05-02", redact=False, summary_only=True),
+            False,
+        ),
+        ("handle_check_google_calendar", SimpleNamespace(date="2026-05-02"), False),
+        ("handle_check_discord", SimpleNamespace(), True),
+        ("handle_check_full_digest", SimpleNamespace(date="2026-05-02"), False),
+        (
+            "handle_send_digest",
+            SimpleNamespace(date="2026-05-02", force=False, channel_id=None, confirm_force=None),
+            False,
+        ),
+        (
+            "handle_reconcile_digest",
+            SimpleNamespace(
+                date="2026-05-02",
+                message_id=["111"],
+                partial=False,
+                confirm_reconcile="2026-05-02",
+            ),
+            False,
+        ),
+    ],
+)
+def test_operator_cli_handlers_configure_logging(
+    monkeypatch: MonkeyPatch,
+    handler_name: str,
+    args: SimpleNamespace,
+    uses_discord_only_settings: bool,
+) -> None:
+    """Every operator command handler should configure logging after loading settings."""
+    loaded_settings = object()
+    discord_settings = object()
+    configured: list[object] = []
+
+    def fake_asyncio_run(coroutine: Coroutine[Any, Any, object]) -> object:
+        """Close the unused coroutine and return a successful command result."""
+        coroutine.close()
+        return SimpleNamespace(exit_code=0, message="")
+
+    monkeypatch.setattr("discordcalendarbot.cli.load_operator_settings", lambda: loaded_settings)
+    monkeypatch.setattr(
+        "discordcalendarbot.cli.load_discord_operator_settings",
+        lambda: discord_settings,
+    )
+    monkeypatch.setattr("discordcalendarbot.cli.configure_logging", configured.append)
+    monkeypatch.setattr("discordcalendarbot.cli.asyncio.run", fake_asyncio_run)
+
+    assert getattr(cli, handler_name)(args) == 0
+    assert configured == [discord_settings if uses_discord_only_settings else loaded_settings]
 
 
 def test_build_application_returns_runtime_when_settings_are_supplied(tmp_path: Path) -> None:
@@ -92,8 +154,10 @@ def test_gitignore_contains_secret_and_state_patterns() -> None:
         "token.json",
         "*.sqlite3",
         "*.sqlite3-*",
+        "*.log",
         "data/",
         ".state/",
+        "logs/",
     }
 
     assert expected_patterns <= gitignore_lines
