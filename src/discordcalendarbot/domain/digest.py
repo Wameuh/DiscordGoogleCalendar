@@ -66,6 +66,60 @@ def sort_events(events: tuple[CalendarEvent, ...], timezone: ZoneInfo) -> tuple[
     )
 
 
+def deduplicate_matching_events(
+    events: tuple[CalendarEvent, ...],
+    timezone: ZoneInfo,
+) -> tuple[CalendarEvent, ...]:
+    """Collapse confidently matching events from multiple configured calendars."""
+    events_by_identity: dict[tuple[str, str, bool, str, str], CalendarEvent] = {}
+    for event in events:
+        events_by_identity.setdefault(deduplication_identity(event, timezone), event)
+    return tuple(events_by_identity.values())
+
+
+def deduplication_identity(
+    event: CalendarEvent,
+    timezone: ZoneInfo,
+) -> tuple[str, str, bool, str, str]:
+    """Return the digest-level identity for cross-calendar event deduplication."""
+    start = normalized_deduplication_boundary(
+        event.time.start,
+        timezone,
+        is_all_day=event.time.is_all_day,
+    )
+    end = normalized_deduplication_boundary(
+        event.time.end,
+        timezone,
+        is_all_day=event.time.is_all_day,
+    )
+    if event.provider_identity:
+        return ("provider", event.provider_identity, event.time.is_all_day, start, end)
+    return (
+        "fallback-title-time",
+        normalize_deduplication_title(event.title),
+        event.time.is_all_day,
+        start,
+        end,
+    )
+
+
+def normalized_deduplication_boundary(
+    value: datetime | date,
+    timezone: ZoneInfo,
+    *,
+    is_all_day: bool,
+) -> str:
+    """Normalize an event boundary for digest-level deduplication."""
+    if is_all_day:
+        return normalize_event_boundary(value, timezone).date().isoformat()
+    return normalize_event_boundary(value, timezone).isoformat()
+
+
+def normalize_deduplication_title(title: str) -> str:
+    """Normalize a display title for conservative fallback deduplication."""
+    return " ".join(title.split()).casefold()
+
+
 def build_daily_digest(
     *,
     target_date: date,

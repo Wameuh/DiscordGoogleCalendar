@@ -9,7 +9,7 @@ from discordcalendarbot.calendar.tag_filter import TagFilter, filter_tagged_even
 from discordcalendarbot.discord.formatter import DigestFormatter
 from discordcalendarbot.discord.sanitizer import DiscordContentSanitizer
 from discordcalendarbot.discord.url_policy import UrlPolicy
-from discordcalendarbot.domain.digest import build_daily_digest
+from discordcalendarbot.domain.digest import build_daily_digest, deduplicate_matching_events
 from discordcalendarbot.domain.events import CalendarEvent, EventTime
 
 EXPECTED_PART_COUNT = 3
@@ -25,15 +25,18 @@ def make_event(
     description: str | None = None,
     location: str | None = None,
     is_all_day: bool = False,
+    calendar_id: str = "primary",
+    provider_identity: str | None = None,
 ) -> CalendarEvent:
     """Build a normalized calendar event for tests."""
     return CalendarEvent(
-        calendar_id="primary",
+        calendar_id=calendar_id,
         event_id=event_id,
         title=title,
         time=EventTime(start=start, end=end, is_all_day=is_all_day),
         description=description,
         location=location,
+        provider_identity=provider_identity,
     )
 
 
@@ -110,6 +113,81 @@ def test_digest_sorting_and_empty_policy() -> None:
 
     assert [event.event_id for event in digest.events] == ["all-day", "timed"]
     assert not empty.should_post
+
+
+def test_deduplicate_matching_events_prefers_provider_identity() -> None:
+    """Cross-calendar duplicates with the same provider identity and time should collapse."""
+    timezone = ZoneInfo("Europe/Kiev")
+    first = make_event(
+        "first",
+        "Planning",
+        start=datetime(2026, 5, 2, 8, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 9, tzinfo=timezone),
+        calendar_id="primary",
+        provider_identity="same-event@example.com",
+    )
+    duplicate = make_event(
+        "duplicate",
+        "Planning copy",
+        start=datetime(2026, 5, 2, 8, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 9, tzinfo=timezone),
+        calendar_id="team",
+        provider_identity="same-event@example.com",
+    )
+    different_occurrence = make_event(
+        "different-occurrence",
+        "Planning",
+        start=datetime(2026, 5, 2, 10, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 11, tzinfo=timezone),
+        calendar_id="team",
+        provider_identity="same-event@example.com",
+    )
+
+    deduplicated = deduplicate_matching_events((first, duplicate, different_occurrence), timezone)
+
+    assert [event.event_id for event in deduplicated] == ["first", "different-occurrence"]
+
+
+def test_deduplicate_matching_events_uses_title_time_fallback() -> None:
+    """Events without provider identity should collapse only by normalized title and time."""
+    timezone = ZoneInfo("Europe/Kiev")
+    first = make_event(
+        "first",
+        "  Planning   Session  ",
+        start=datetime(2026, 5, 2, 8, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 9, tzinfo=timezone),
+        calendar_id="primary",
+        location="Room A",
+    )
+    duplicate_with_different_location = make_event(
+        "duplicate",
+        "planning session",
+        start=datetime(2026, 5, 2, 8, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 9, tzinfo=timezone),
+        calendar_id="team",
+        location="Room B",
+    )
+    near_duplicate_title = make_event(
+        "near-title",
+        "Planning Session Follow-up",
+        start=datetime(2026, 5, 2, 8, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 9, tzinfo=timezone),
+        calendar_id="team",
+    )
+    near_duplicate_time = make_event(
+        "near-time",
+        "Planning Session",
+        start=datetime(2026, 5, 2, 8, 30, tzinfo=timezone),
+        end=datetime(2026, 5, 2, 9, 30, tzinfo=timezone),
+        calendar_id="team",
+    )
+
+    deduplicated = deduplicate_matching_events(
+        (first, duplicate_with_different_location, near_duplicate_title, near_duplicate_time),
+        timezone,
+    )
+
+    assert [event.event_id for event in deduplicated] == ["first", "near-title", "near-time"]
 
 
 def test_discord_sanitizer_neutralizes_mentions_markdown_links_and_controls() -> None:

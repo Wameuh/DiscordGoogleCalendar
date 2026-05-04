@@ -294,6 +294,24 @@ def test_map_google_event_normalizes_timed_event() -> None:
     assert not event.time.is_all_day
 
 
+def test_map_google_event_captures_provider_identity() -> None:
+    """Mapper should keep Google iCalUID for cross-calendar deduplication."""
+    event = map_google_event(
+        {
+            "id": "provider-event-instance",
+            "iCalUID": "shared-provider-event@example.com",
+            "summary": "Session",
+            "start": {"dateTime": "2026-05-02T08:00:00+00:00"},
+            "end": {"dateTime": "2026-05-02T09:00:00+00:00"},
+        },
+        calendar_id="primary",
+        timezone=ZoneInfo("Europe/Kiev"),
+    )
+
+    assert event.event_id == "provider-event-instance"
+    assert event.provider_identity == "shared-provider-event@example.com"
+
+
 def test_map_google_event_normalizes_all_day_event() -> None:
     """Mapper should preserve all-day Google date boundaries."""
     event = map_google_event(
@@ -359,3 +377,38 @@ def test_normalize_google_events_filters_cancelled_out_of_window_and_duplicates(
 
     assert len(events) == 1
     assert events[0].event_id == "keep"
+
+
+def test_normalize_google_events_keeps_recurring_instances_with_shared_icaluid() -> None:
+    """Recurring instances should stay separate when Google expands them at different times."""
+    timezone = ZoneInfo("Europe/Kiev")
+    window = build_local_day_window(date(2026, 5, 2), timezone)
+    payloads = [
+        {
+            "id": "recurring-20260502T080000",
+            "iCalUID": "recurring-series@example.com",
+            "summary": "Daily Standup",
+            "start": {"dateTime": "2026-05-02T08:00:00+03:00"},
+            "end": {"dateTime": "2026-05-02T08:30:00+03:00"},
+        },
+        {
+            "id": "recurring-20260502T150000",
+            "iCalUID": "recurring-series@example.com",
+            "summary": "Daily Standup",
+            "start": {"dateTime": "2026-05-02T15:00:00+03:00"},
+            "end": {"dateTime": "2026-05-02T15:30:00+03:00"},
+        },
+    ]
+
+    events = normalize_google_events(
+        payloads,
+        calendar_id="primary",
+        timezone=timezone,
+        window=window,
+    )
+
+    assert [event.event_id for event in events] == [
+        "recurring-20260502T080000",
+        "recurring-20260502T150000",
+    ]
+    assert {event.provider_identity for event in events} == {"recurring-series@example.com"}

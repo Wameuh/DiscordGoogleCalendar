@@ -40,6 +40,7 @@ def map_google_event(
         location=optional_string(payload.get("location")),
         html_link=optional_string(payload.get("htmlLink")),
         status=optional_string(payload.get("status")),
+        provider_identity=optional_string(payload.get("iCalUID")),
     )
 
 

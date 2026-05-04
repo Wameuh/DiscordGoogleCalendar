@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from discordcalendarbot.calendar.auth import GoogleAuthError
 from discordcalendarbot.calendar.mapper import GoogleEventMappingError, normalize_google_events
@@ -22,6 +23,7 @@ from discordcalendarbot.domain.digest import (
     LocalDayWindow,
     build_daily_digest,
     build_local_day_window,
+    deduplicate_matching_events,
 )
 from discordcalendarbot.domain.events import CalendarEvent
 from discordcalendarbot.storage.repository import DigestRunKey, DigestRunRepository
@@ -280,7 +282,7 @@ class DailyDigestService:
         """Execute a digest after the run has been claimed."""
         window = build_local_day_window(target_date, self._settings.bot_timezone)
         events = await self._fetch_events(window, retry_deadline=retry_deadline)
-        digest_events = self._filter_digest_events(events)
+        digest_events = select_digest_events(events, self._tag_filter, self._settings.bot_timezone)
         digest = build_daily_digest(
             target_date=target_date,
             timezone_name=self._settings.bot_timezone_name,
@@ -352,23 +354,6 @@ class DailyDigestService:
                 )
             )
         return tuple(normalized)
-
-    def _filter_digest_events(self, events: tuple[CalendarEvent, ...]) -> tuple[CalendarEvent, ...]:
-        """Filter digest events and clean display titles when needed."""
-        return tuple(
-            CalendarEvent(
-                calendar_id=event.calendar_id,
-                event_id=event.event_id,
-                title=self._tag_filter.clean_title(event.title),
-                time=event.time,
-                description=event.description,
-                location=event.location,
-                html_link=event.html_link,
-                status=event.status,
-            )
-            for event in events
-            if self._tag_filter.matches(event)
-        )
 
     async def _publish_with_retry(
         self,
@@ -446,6 +431,30 @@ def build_digest_run_key(
         event_tag_hash=stable_filter_hash(settings),
         namespace=namespace,
     )
+
+
+def select_digest_events(
+    events: tuple[CalendarEvent, ...],
+    event_filter: DigestEventFilter,
+    timezone: ZoneInfo,
+) -> tuple[CalendarEvent, ...]:
+    """Filter, clean, and deduplicate events that should appear in a digest."""
+    filtered_events = tuple(
+        CalendarEvent(
+            calendar_id=event.calendar_id,
+            event_id=event.event_id,
+            title=event_filter.clean_title(event.title),
+            time=event.time,
+            description=event.description,
+            location=event.location,
+            html_link=event.html_link,
+            status=event.status,
+            provider_identity=event.provider_identity,
+        )
+        for event in events
+        if event_filter.matches(event)
+    )
+    return deduplicate_matching_events(filtered_events, timezone)
 
 
 def stable_filter_hash(settings: BotSettings) -> str:

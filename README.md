@@ -154,7 +154,7 @@ uv run python -m discordcalendarbot reconcile-digest --date 2026-05-02 --message
 
 `dry-run --summary-only` reports Google Calendar authentication, access, timeout, and mapping failures as command failures instead of showing `0 Discord message part(s)`. A zero-message summary means the calendar read and filtering completed successfully but produced no Discord output.
 
-`check-google-calendar` verifies the Google Calendar read path without opening Discord or writing SQLite state. It prints only safe counters for configured calendars, raw events, normalized events, and digest filter matches.
+`check-google-calendar` verifies the Google Calendar read path without opening Discord or writing SQLite state. It prints only safe counters for configured calendars, raw events, normalized events, and deduplicated digest events after filtering.
 
 `check-discord` verifies the bot token can connect to Discord, resolve the configured guild and channel, and confirm `View Channel` plus `Send Messages` permissions. It does not load Google settings, open Google Calendar clients, write SQLite state, or send a Discord message.
 

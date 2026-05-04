@@ -185,11 +185,11 @@ Dry-run output can contain private calendar titles. Use `--redact` or `--summary
 
 If dry-run cannot read Google Calendar data, it exits non-zero and reports a safe operator message for authentication, access, timeout, network, or event-normalization failures. `Dry run for <date>: 0 Discord message part(s).` should mean the read path succeeded and no digest message would be produced.
 
-`check-google-calendar` authenticates with Google, queries configured calendars for the local-day window, normalizes events, applies the configured digest filter, and prints only safe counters. It does not print event titles, descriptions, locations, links, raw calendar IDs, OAuth payloads, or Discord data.
+`check-google-calendar` authenticates with Google, queries configured calendars for the local-day window, normalizes events, applies the configured digest filter, deduplicates matching digest events across calendars, and prints only safe counters. It does not print event titles, descriptions, locations, links, raw calendar IDs, OAuth payloads, or Discord data.
 
 `check-discord` connects with minimal guild intents, validates the configured guild and channel, confirms `View Channel` and `Send Messages`, then disconnects without sending a message.
 
-`check-full-digest` authenticates with Google, reads configured calendars, applies the configured digest filter, formats Discord message payloads in memory, validates Discord target permissions, and prints only safe status, counters, and permission confirmations. It never calls Discord publishing and does not open or write SQLite state.
+`check-full-digest` authenticates with Google, reads configured calendars, applies the configured digest filter, deduplicates matching digest events across calendars, formats Discord message payloads in memory, validates Discord target permissions, and prints only safe status, counters, and permission confirmations. It never calls Discord publishing and does not open or write SQLite state.
 
 ## Windows Deployment
 

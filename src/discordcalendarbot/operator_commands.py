@@ -39,6 +39,7 @@ from discordcalendarbot.services.digest_service import (
     DailyDigestService,
     DigestServiceStatus,
     build_digest_run_key,
+    select_digest_events,
     status_code_for_error,
 )
 from discordcalendarbot.storage.repository import ClaimResult, DigestRunKey, DigestRunRepository
@@ -310,7 +311,7 @@ async def run_check_google_calendar_command(
                 f"Calendars checked: {result.calendar_count}",
                 f"Raw events returned: {result.raw_event_count}",
                 f"Normalized events: {result.normalized_event_count}",
-                f"Digest filter matches: {result.digest_event_count}",
+                f"Deduplicated digest events: {result.digest_event_count}",
             )
         )
         + "\n"
@@ -374,7 +375,7 @@ async def run_check_full_digest_command(
                 f"Calendars checked: {result.calendar_count}",
                 f"Raw events returned: {result.raw_event_count}",
                 f"Normalized events: {result.normalized_event_count}",
-                f"Digest filter matches: {result.digest_event_count}",
+                f"Deduplicated digest events: {result.digest_event_count}",
                 f"Discord message parts formatted: {result.message_part_count}",
                 f"Digest would post: {yes_no(result.should_post)}",
                 "Guild resolved: yes",
@@ -542,12 +543,16 @@ async def check_google_calendar(
                 window=window,
             )
         )
-    digest_event_count = sum(1 for event in normalized_events if digest_filter.matches(event))
+    digest_events = select_digest_events(
+        tuple(normalized_events),
+        digest_filter,
+        settings.bot_timezone,
+    )
     return GoogleCalendarCheckResult(
         calendar_count=len(settings.google_calendar_ids),
         raw_event_count=raw_event_count,
         normalized_event_count=len(normalized_events),
-        digest_event_count=digest_event_count,
+        digest_event_count=len(digest_events),
     )
 
 
@@ -577,19 +582,10 @@ async def build_full_digest_check(
                 window=window,
             )
         )
-    digest_events = tuple(
-        CalendarEvent(
-            calendar_id=event.calendar_id,
-            event_id=event.event_id,
-            title=digest_filter.clean_title(event.title),
-            time=event.time,
-            description=event.description,
-            location=event.location,
-            html_link=event.html_link,
-            status=event.status,
-        )
-        for event in normalized_events
-        if digest_filter.matches(event)
+    digest_events = select_digest_events(
+        tuple(normalized_events),
+        digest_filter,
+        settings.bot_timezone,
     )
     digest = build_daily_digest(
         target_date=target_date,

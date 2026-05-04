@@ -35,6 +35,7 @@ GUILD_ID = 123_456
 CHANNEL_ID = 234_567
 LOCK_TTL_SECONDS = 900
 EXPECTED_DISCORD_RETRY_CALLS = 2
+EXPECTED_NEAR_DUPLICATE_COUNT = 2
 KYIV = ZoneInfo("Europe/Kiev")
 
 
@@ -189,6 +190,7 @@ def make_settings(
     post_empty_digest: bool = False,
     event_filter_mode: EventFilterMode = EventFilterMode.TAGGED,
     event_tag: str | None = "#discord-daily",
+    google_calendar_ids: tuple[str, ...] = ("primary",),
 ) -> BotSettings:
     """Build test settings without reading environment variables."""
     return BotSettings(
@@ -197,7 +199,7 @@ def make_settings(
         discord_channel_id=CHANNEL_ID,
         google_credentials_path=tmp_path / "credentials.json",
         google_token_path=tmp_path / "token.json",
-        google_calendar_ids=("primary",),
+        google_calendar_ids=google_calendar_ids,
         event_filter_mode=event_filter_mode,
         event_tag=event_tag,
         bot_timezone_name="Europe/Kiev",
@@ -218,14 +220,24 @@ async def make_repository(tmp_path: Path) -> SQLiteDigestRunRepository:
     return repository
 
 
-def make_raw_event(event_id: str, *, title: str = "Planning #discord-daily") -> dict[str, Any]:
+def make_raw_event(
+    event_id: str,
+    *,
+    title: str = "Planning #discord-daily",
+    ical_uid: str | None = None,
+    start: str = "2026-05-02T08:00:00+03:00",
+    end: str = "2026-05-02T09:00:00+03:00",
+) -> dict[str, Any]:
     """Build a raw Google Calendar event payload."""
-    return {
+    payload = {
         "id": event_id,
         "summary": title,
-        "start": {"dateTime": "2026-05-02T08:00:00+03:00"},
-        "end": {"dateTime": "2026-05-02T09:00:00+03:00"},
+        "start": {"dateTime": start},
+        "end": {"dateTime": end},
     }
+    if ical_uid is not None:
+        payload["iCalUID"] = ical_uid
+    return payload
 
 
 def make_service(
@@ -344,6 +356,57 @@ async def test_all_filter_mode_posts_untagged_events_without_title_cleanup(tmp_p
     assert result.status == DigestServiceStatus.POSTED
     assert result.event_count == 1
     assert "Planning" in publisher.calls[0][0].content
+
+
+@pytest.mark.asyncio
+async def test_daily_digest_deduplicates_same_event_across_calendars(tmp_path: Path) -> None:
+    """Same tagged event returned by two configured calendars should post once."""
+    settings = make_settings(tmp_path, google_calendar_ids=("primary", "team"))
+    repository = await make_repository(tmp_path)
+    calendar_client = FakeCalendarClient(
+        {
+            "primary": [make_raw_event("primary-event", ical_uid="shared-event@example.com")],
+            "team": [make_raw_event("team-event", ical_uid="shared-event@example.com")],
+        }
+    )
+    publisher = FakePublisher()
+    now = datetime(2026, 5, 2, 7, 0, tzinfo=KYIV)
+    service = make_service(settings, repository, calendar_client, publisher, now=now)
+
+    result = await service.run_for_date(date(2026, 5, 2))
+    event_lines = [
+        line for line in publisher.calls[0][0].content.splitlines() if line.startswith("- ")
+    ]
+
+    assert result.status == DigestServiceStatus.POSTED
+    assert result.event_count == 1
+    assert len(event_lines) == 1
+    assert calendar_client.calls == ["primary", "team"]
+
+
+@pytest.mark.asyncio
+async def test_daily_digest_preserves_near_duplicates_across_calendars(tmp_path: Path) -> None:
+    """Tagged events with different titles should remain separate digest entries."""
+    settings = make_settings(tmp_path, google_calendar_ids=("primary", "team"))
+    repository = await make_repository(tmp_path)
+    calendar_client = FakeCalendarClient(
+        {
+            "primary": [make_raw_event("primary-event", title="Planning A #discord-daily")],
+            "team": [make_raw_event("team-event", title="Planning B #discord-daily")],
+        }
+    )
+    publisher = FakePublisher()
+    now = datetime(2026, 5, 2, 7, 0, tzinfo=KYIV)
+    service = make_service(settings, repository, calendar_client, publisher, now=now)
+
+    result = await service.run_for_date(date(2026, 5, 2))
+    event_lines = [
+        line for line in publisher.calls[0][0].content.splitlines() if line.startswith("- ")
+    ]
+
+    assert result.status == DigestServiceStatus.POSTED
+    assert result.event_count == EXPECTED_NEAR_DUPLICATE_COUNT
+    assert len(event_lines) == EXPECTED_NEAR_DUPLICATE_COUNT
 
 
 def test_filter_mode_is_part_of_digest_idempotency_key(tmp_path: Path) -> None:

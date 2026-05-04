@@ -82,6 +82,7 @@ def filter_tagged_events(
             location=event.location,
             html_link=event.html_link,
             status=event.status,
+            provider_identity=event.provider_identity,
         )
         for event in events
         if tag_filter.matches(event)

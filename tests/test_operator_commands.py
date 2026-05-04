@@ -49,6 +49,7 @@ GUILD_ID = 123_456
 CHANNEL_ID = 234_567
 EXPECTED_REFUSAL_EXIT = 2
 EXPECTED_CHECK_EVENT_COUNT = 2
+EXPECTED_DEDUP_CALENDAR_COUNT = 2
 KYIV = ZoneInfo("Europe/Kiev")
 
 
@@ -182,7 +183,11 @@ def make_dry_run_preview(
     )
 
 
-def make_settings(tmp_path: Path) -> BotSettings:
+def make_settings(
+    tmp_path: Path,
+    *,
+    google_calendar_ids: tuple[str, ...] = ("primary",),
+) -> BotSettings:
     """Build operator command test settings."""
     return BotSettings(
         discord_bot_token=f"token-{tmp_path.name}",
@@ -190,7 +195,7 @@ def make_settings(tmp_path: Path) -> BotSettings:
         discord_channel_id=CHANNEL_ID,
         google_credentials_path=tmp_path / "credentials.json",
         google_token_path=tmp_path / "token.json",
-        google_calendar_ids=("primary",),
+        google_calendar_ids=google_calendar_ids,
         event_filter_mode=EventFilterMode.TAGGED,
         event_tag="#discord-daily",
         bot_timezone_name="Europe/Kiev",
@@ -522,7 +527,7 @@ async def test_check_google_calendar_reports_safe_counters(
     assert result.exit_code == 0
     assert "Calendars checked: 2" in output.text
     assert "Raw events returned: 3" in output.text
-    assert "Digest filter matches: 1" in output.text
+    assert "Deduplicated digest events: 1" in output.text
     assert "#discord-daily" not in output.text
     assert "Planning" not in output.text
     assert not settings.sqlite_path.exists()
@@ -580,6 +585,36 @@ async def test_check_google_calendar_uses_window_mapping_and_filter(
     assert result.normalized_event_count == EXPECTED_CHECK_EVENT_COUNT
     assert result.digest_event_count == 1
     assert fake_client.calls == [("primary", "Europe/Kiev")]
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_check_google_calendar_reports_deduplicated_digest_count(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Google check counters should deduplicate cross-calendar digest matches."""
+    settings = make_settings(tmp_path, google_calendar_ids=("primary", "team"))
+    fake_client = FakeCheckCalendarClient()
+
+    async def fake_build_calendar_client(_settings: BotSettings) -> FakeCheckCalendarClient:
+        """Return the fake check calendar client."""
+        return fake_client
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_calendar_client",
+        fake_build_calendar_client,
+    )
+
+    result = await check_google_calendar(settings, target_date=date(2026, 5, 2))
+
+    assert result.calendar_count == EXPECTED_DEDUP_CALENDAR_COUNT
+    assert result.raw_event_count == EXPECTED_CHECK_EVENT_COUNT * EXPECTED_DEDUP_CALENDAR_COUNT
+    assert (
+        result.normalized_event_count == EXPECTED_CHECK_EVENT_COUNT * EXPECTED_DEDUP_CALENDAR_COUNT
+    )
+    assert result.digest_event_count == 1
+    assert fake_client.calls == [("primary", "Europe/Kiev"), ("team", "Europe/Kiev")]
     assert not settings.sqlite_path.exists()
 
 
@@ -725,6 +760,38 @@ async def test_build_full_digest_check_reads_filters_and_formats_without_state(
     assert result.message_part_count == 1
     assert result.should_post
     assert fake_client.calls == [("primary", "Europe/Kiev")]
+    assert not settings.sqlite_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_build_full_digest_check_formats_deduplicated_digest(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Full digest checks should format deduplicated cross-calendar events."""
+    settings = make_settings(tmp_path, google_calendar_ids=("primary", "team"))
+    fake_client = FakeCheckCalendarClient()
+
+    async def fake_build_calendar_client(_settings: BotSettings) -> FakeCheckCalendarClient:
+        """Return the fake check calendar client."""
+        return fake_client
+
+    monkeypatch.setattr(
+        "discordcalendarbot.operator_commands.build_calendar_client",
+        fake_build_calendar_client,
+    )
+
+    result = await build_full_digest_check(settings, target_date=date(2026, 5, 2))
+
+    assert result.calendar_count == EXPECTED_DEDUP_CALENDAR_COUNT
+    assert result.raw_event_count == EXPECTED_CHECK_EVENT_COUNT * EXPECTED_DEDUP_CALENDAR_COUNT
+    assert (
+        result.normalized_event_count == EXPECTED_CHECK_EVENT_COUNT * EXPECTED_DEDUP_CALENDAR_COUNT
+    )
+    assert result.digest_event_count == 1
+    assert result.message_part_count == 1
+    assert result.should_post
+    assert fake_client.calls == [("primary", "Europe/Kiev"), ("team", "Europe/Kiev")]
     assert not settings.sqlite_path.exists()
 
 

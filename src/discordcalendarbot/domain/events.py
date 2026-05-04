@@ -17,7 +17,11 @@ class EventTime:
 
 @dataclass(frozen=True)
 class CalendarEvent:
-    """Normalized calendar event used by digest services."""
+    """Normalized calendar event used by digest services.
+
+    provider_identity stores a provider-stable identity, such as Google iCalUID,
+    when one is available for cross-calendar digest deduplication.
+    """
 
     calendar_id: str
     event_id: str
@@ -27,6 +31,7 @@ class CalendarEvent:
     location: str | None = None
     html_link: str | None = None
     status: str | None = None
+    provider_identity: str | None = None
 
     @property
     def stable_identity(self) -> tuple[str, str]:

@@ -237,12 +237,13 @@ These boundaries keep tests fast and avoid network calls in unit tests.
 9. Post-filter events by local-day overlap.
 10. Remove cancelled events.
 11. Apply tag filtering.
-12. Sort and group events.
-13. Format one or more Discord message parts.
-14. If there are no tagged events and empty digest posting is disabled, mark the run as skipped.
-15. Post message parts to Discord.
-16. Store Discord message IDs and mark the run as posted.
-17. If an error occurs, store sanitized failure context and retry classification.
+12. Deduplicate matching digest events across configured calendars.
+13. Sort and group events.
+14. Format one or more Discord message parts.
+15. If there are no tagged events and empty digest posting is disabled, mark the run as skipped.
+16. Post message parts to Discord.
+17. Store Discord message IDs and mark the run as posted.
+18. If an error occurs, store sanitized failure context and retry classification.
 
 ## Configuration
 
@@ -455,6 +456,10 @@ After fetching:
 - Include recurring event instances after expansion with `singleEvents=true`.
 - Ignore cancelled events.
 - Deduplicate stable Google instances by calendar ID plus event instance identity.
+- Deduplicate digest entries across configured calendars after tag filtering and title cleanup.
+- Prefer Google `iCalUID` plus the normalized time window for cross-calendar digest deduplication.
+- When no provider identity is available, collapse events with the same normalized display title and normalized time window, even if location differs.
+- Preserve near-duplicate events when their title or time differs.
 
 This daily bounded query is simpler than incremental sync for v1. Incremental sync can be introduced later if the bot starts doing frequent polling or real-time reminders.
 
@@ -794,6 +799,7 @@ Unit tests:
 - Google payload normalization.
 - All-day, timed, crossing-midnight, and recurring events.
 - Cancelled event exclusion.
+- Cross-calendar digest deduplication by Google provider identity and title/time fallback.
 - HTML-normalized tag filtering.
 - Token-aware tag matching.
 - Display title cleanup.
