@@ -131,7 +131,7 @@ Tests should live under `tests`.
 : Pure domain models such as `CalendarEvent`, `EventTime`, and normalized calendar metadata.
 
 `domain/digest.py`
-: Pure digest rules. TODO 2 implements local-day windows, overlap checks, and digest data structures; sorting and empty-day behavior are completed with tag filtering and formatting in TODO 4.
+: Pure digest rules for local-day windows, overlap checks, digest data structures, sorting, and empty-day behavior.
 
 `calendar/auth.py`
 : Google OAuth credential loading, refresh, and first-time login support.
@@ -295,8 +295,10 @@ token.json
 token.json.metadata.json
 *.sqlite3
 *.sqlite3-*
+*.log
 data/
 .state/
+logs/
 gitleaks-bin/
 gitleaks-*-bin/
 local-results.sarif
@@ -850,72 +852,6 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 ```
-
-## Incremental Delivery Plan
-
-1. Project foundation
-   - Move application code under `src/discordcalendarbot`.
-   - Add package `__init__.py` files.
-   - Add `uv` dependencies.
-   - Add Ruff and pytest configuration.
-   - Update `.gitignore` for secrets and local state.
-   - Add initial security tests for ignore patterns and config validation.
-
-2. Configuration and domain
-   - Implement typed settings.
-   - Add domain models.
-   - Add timezone and date-window tests.
-   - Add path validation, secret permission checks, and log redaction primitives.
-
-3. Google Calendar read path
-   - Implement OAuth bootstrap.
-   - Implement token loading and refresh.
-   - Implement event retrieval with executor isolation.
-   - Implement mapper and local-day overlap filtering.
-   - Add JSON fixture tests.
-
-4. Tag filtering and digest formatting
-   - Implement HTML-normalized tag matching.
-   - Implement title cleanup.
-   - Implement sorting and empty digest policy.
-   - Implement Discord message formatting and splitting.
-   - Implement the single Discord content sanitizer and precise URL policy.
-
-5. SQLite idempotency
-   - Implement schema initialization.
-   - Implement atomic run claim.
-   - Implement posted, skipped, failed, and partial states.
-   - Add duplicate and stale-lock tests.
-   - Add error sanitization, retention, and restrictive file permission handling.
-
-6. Discord bot shell
-   - Implement `discord.py` startup.
-   - Validate guild and channel.
-   - Implement mention-safe publisher.
-   - Implement markdown neutralization and URL policy.
-   - Add mocked Discord tests.
-
-7. Scheduler integration
-   - Add `AsyncIOScheduler`.
-   - Add reconnect-safe startup guard.
-   - Add 7:00 AM cron trigger.
-   - Add misfire and catch-up behavior.
-
-8. Operator commands
-   - Add `google-auth-login`.
-   - Add `dry-run`.
-   - Add `send-digest`.
-   - Add `--force --confirm-force` for intentional reposts.
-   - Add reconciliation tooling for partial delivery.
-   - Add operator audit metadata where available.
-
-9. Documentation
-   - Document Discord bot setup.
-   - Document Google OAuth setup.
-   - Document environment variables.
-   - Document running the bot as a long-lived process on Windows and Linux.
-   - Document filesystem permissions, deployment hardening, dry-run sensitivity, and token rotation.
-   - Document data retention, backup encryption, privacy expectations for the target Discord channel, and calendar sharing assumptions.
 
 ## Future Extensions
 

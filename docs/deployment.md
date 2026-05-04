@@ -159,9 +159,146 @@ journalctl -u discordcalendarbot -f
 
 The app loads `.env` from `WorkingDirectory`. Keep secrets and SQLite paths readable by the service user. If `BOT_TIMEZONE` cannot be resolved, run `uv sync --locked` again to make sure the Python `tzdata` dependency is installed.
 
+### Reload Environment Changes
+
+The bot reads `.env` only when the process starts. After changing values in `.env`, restart the systemd service so the running process picks up the new configuration:
+
 ```bash
-uv sync --locked
+sudo systemctl restart discordcalendarbot
+sudo systemctl status discordcalendarbot --no-pager
 ```
+
+Inspect recent logs without printing environment values or secret files:
+
+```bash
+sudo journalctl -u discordcalendarbot -n 100 --no-pager
+sudo journalctl -u discordcalendarbot -f
+```
+
+Run `daemon-reload` only when the systemd unit file changed, not for a `.env`-only update:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart discordcalendarbot
+```
+
+If the restart does not use the expected values, inspect the active unit and confirm whether the service loads `.env` from `WorkingDirectory` or uses an explicit `EnvironmentFile`:
+
+```bash
+sudo systemctl cat discordcalendarbot
+```
+
+## Safe Update Procedure
+
+Treat application code and private runtime data as separate assets. Update the versioned repository with git, and preserve runtime data in its existing protected locations. Do not replace the whole project directory with a fresh checkout, and do not copy a clean checkout over a directory that contains live `.env`, OAuth, SQLite, log, backup, `data/`, or `.state/` files.
+
+Runtime data that must be preserved includes:
+
+- `.env` and `.env.*`
+- `credentials.json`
+- `token.json` and `token.json.metadata.json`
+- SQLite files such as `*.sqlite3`, `*.sqlite3-wal`, and `*.sqlite3-shm`
+- log files and rotated log files
+- encrypted backups
+- local `data/`, `.state/`, secrets, state, and logs directories
+
+### Pre-Update Checklist
+
+Run this checklist before changing code:
+
+- Inspect repository state with `git status --short`.
+- Record the current commit with `git rev-parse --short HEAD`.
+- Confirm the service state with `systemctl status discordcalendarbot` on Linux or the Windows service wrapper, Task Scheduler task, or supervisor status on Windows.
+- Verify that runtime paths are outside the repository or ignored by git.
+- Confirm that a recent backup exists for private runtime data.
+- Do not print, commit, archive into the repository, paste, or upload the contents of `.env`, OAuth JSON files, SQLite state, logs, rendered digests, or private calendar data.
+
+### Backup Runtime Data
+
+Before updating, create a backup of only the private runtime data needed for recovery. Backups containing Discord tokens, Google OAuth credentials, refresh tokens, SQLite state, logs, or private calendar output must be encrypted and access-controlled. If encrypted backups are not available, exclude OAuth tokens and recreate them with `google-auth-login` during restore.
+
+### Linux Update With Systemd
+
+Use git to update code in place while keeping runtime files untouched:
+
+```bash
+cd /opt/discordcalendarbot
+git status --short
+git rev-parse --short HEAD
+sudo systemctl stop discordcalendarbot
+# Create an encrypted backup of /etc/discordcalendarbot, /var/lib/discordcalendarbot,
+# and /var/log/discordcalendarbot before continuing.
+git fetch --all --prune
+git switch main
+git pull --ff-only
+uv sync --locked
+uv run python -m discordcalendarbot check-google-calendar --date YYYY-MM-DD
+uv run python -m discordcalendarbot check-discord
+uv run python -m discordcalendarbot check-full-digest --date YYYY-MM-DD
+sudo systemctl start discordcalendarbot
+sudo systemctl status discordcalendarbot --no-pager
+sudo journalctl -u discordcalendarbot -n 100 --no-pager
+```
+
+Use the target local date for `YYYY-MM-DD`. The check commands print safe counters and status messages; they must not print private event content, OAuth payloads, or Discord tokens.
+
+### Windows Update
+
+Use the same separation on Windows: stop the supervisor, back up runtime data, update code with git, then restart the supervisor.
+
+```powershell
+cd C:\DiscordCalendarBot\app
+git status --short
+git rev-parse --short HEAD
+# Stop the Windows service wrapper, scheduled startup task, or supervisor here.
+# Create a protected encrypted backup of C:\DiscordCalendarBot\secrets,
+# C:\DiscordCalendarBot\state, and C:\DiscordCalendarBot\logs before continuing.
+git fetch --all --prune
+git switch main
+git pull --ff-only
+uv sync --locked
+uv run python -m discordcalendarbot check-google-calendar --date YYYY-MM-DD
+uv run python -m discordcalendarbot check-discord
+uv run python -m discordcalendarbot check-full-digest --date YYYY-MM-DD
+# Restart the Windows service wrapper, scheduled startup task, or supervisor here.
+```
+
+After restart, inspect the configured log file, supervisor output, or Windows event logs without printing secret files or private digest content.
+
+### Rollback
+
+If an update fails, stop the running service first, then return to the recorded commit before restoring runtime data.
+
+Linux rollback:
+
+```bash
+sudo systemctl stop discordcalendarbot
+git switch --detach <previous-commit>
+uv sync --locked
+sudo systemctl start discordcalendarbot
+sudo systemctl status discordcalendarbot --no-pager
+sudo journalctl -u discordcalendarbot -n 100 --no-pager
+```
+
+Windows rollback:
+
+```powershell
+# Stop the Windows service wrapper, scheduled startup task, or supervisor first.
+git switch --detach <previous-commit>
+uv sync --locked
+# Restart the Windows service wrapper, scheduled startup task, or supervisor.
+# Inspect the configured log file, supervisor output, or Windows event logs.
+```
+
+Restore runtime data from the encrypted backup only when the update changed or damaged local state. Prefer restoring the smallest necessary file set, such as SQLite state, instead of replacing the whole runtime directory.
+
+### Update Mistakes To Avoid
+
+- Do not run broad cleanup such as `git clean -fdx` unless the ignored-file list has been reviewed and runtime data is backed up.
+- Do not delete ignored files just because they are absent from git.
+- Do not copy a fresh checkout over an existing deployment directory.
+- Do not stage or commit `.env`, credentials, tokens, SQLite databases, logs, backups, archives, cache folders, rendered digests, or private calendar/Discord data.
+- Do not run diagnostic commands that print secret files, OAuth payloads, raw calendar events, rendered private digests, or full logs into shared terminals, CI, issue trackers, or chat.
 
 ## Operator Commands
 

@@ -17,6 +17,7 @@ In short, v0.1.1 provides:
 - Local operator commands support OAuth bootstrap, dry runs, and manual recovery.
 
 Detailed setup and operations guidance is in [docs/deployment.md](docs/deployment.md).
+That guide also includes the safe update procedure for preserving `.env`, OAuth credentials, SQLite state, logs, and other runtime data during upgrades and rollbacks.
 
 ## Supported Platforms
 
